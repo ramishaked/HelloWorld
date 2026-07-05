@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { analyzePrompt } from '@/lib/gemini'
+import { analyzePrompt, translateText } from '@/lib/gemini'
 import { createAdminClient } from '@/lib/supabase-admin'
 
 type ActionResult = { success: true } | { error: string }
@@ -90,5 +90,41 @@ export async function toggleFavorite(id: string, isFavorite: boolean): Promise<A
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to update favorite.' }
+  }
+}
+
+export async function updatePromptTitle(id: string, title: string): Promise<ActionResult> {
+  const trimmed = title.trim()
+  if (!trimmed) return { error: 'Title cannot be empty.' }
+
+  try {
+    const admin = createAdminClient()
+    const { error } = await admin
+      .from('prompts')
+      .update({ title: trimmed.slice(0, 120) })
+      .eq('id', id)
+    if (error) return { error: error.message }
+
+    revalidatePath('/')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to update title.' }
+  }
+}
+
+// View-only: returns the translated text without persisting anything, so the
+// card can toggle between the original and a translation.
+export async function translatePrompt(
+  text: string,
+  targetLanguage: string
+): Promise<{ text: string } | { error: string }> {
+  const trimmed = text.trim()
+  if (!trimmed) return { error: 'Nothing to translate.' }
+
+  try {
+    const translated = await translateText(trimmed, targetLanguage)
+    return { text: translated }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to translate.' }
   }
 }

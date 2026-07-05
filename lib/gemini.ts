@@ -58,6 +58,24 @@ function getClient() {
   return client
 }
 
+export async function translateText(text: string, targetLanguage: string): Promise<string> {
+  const response = await getClient().models.generateContent({
+    model: MODEL,
+    contents: [{ role: 'user', parts: [{ text }] }],
+    config: {
+      systemInstruction: `You are a translation engine. Translate the user's text into ${targetLanguage}. \
+Preserve the meaning, tone, line breaks, and any placeholders, variables, or code. \
+Output ONLY the translated text — no preamble, quotes, or explanation.`,
+    },
+  })
+
+  const raw = response.text
+  if (!raw) {
+    throw new Error('Translation returned an empty response.')
+  }
+  return raw.trim()
+}
+
 export async function analyzePrompt(input: {
   text?: string
   imageBase64?: string
