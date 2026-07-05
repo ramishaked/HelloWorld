@@ -3,6 +3,7 @@
 import { useOptimistic, useState, useTransition } from 'react'
 import { ChevronDown, Image as ImageIcon, Star, Trash2, Video } from 'lucide-react'
 import { CopyButton } from '@/components/copy-button'
+import { ShareButton } from '@/components/share-button'
 import { deletePrompt, toggleFavorite } from '@/app/actions'
 import type { Prompt } from '@/lib/types'
 
@@ -107,11 +108,14 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
                 ))}
               </div>
             )}
-            <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center justify-between gap-2 pt-1">
               <span className="text-[11px] text-neutral-400 dark:text-neutral-600">
                 {new Date(prompt.created_at).toLocaleDateString()}
               </span>
-              <CopyButton content={prompt.content} />
+              <div className="flex items-center gap-1.5">
+                <ShareButton title={prompt.title} content={prompt.content} />
+                <CopyButton content={prompt.content} />
+              </div>
             </div>
           </div>
         </div>
