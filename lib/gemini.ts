@@ -17,10 +17,14 @@ chat UI chrome like timestamps or button labels) but preserving the actual promp
 Midjourney/DALL-E/Stable Diffusion/Imagen-style visual description), a VIDEO (e.g. a Sora/Veo/Runway-style \
 shot description), or is it a regular text/chat prompt with no media-generation intent? Respond with \
 exactly one of: "image", "video", "text".
-7. Classify "category": ONE broad, high-level subject that this prompt belongs to, used to group prompts \
-into clusters. Keep it 1-3 words in Title Case (e.g. "Learning", "Image Generation", "Coding", "Marketing", \
-"Writing"). Prefer a general subject over a narrow one. If a list of existing subjects is provided, reuse \
-the best-fitting one verbatim; only coin a new subject when none fits.
+7. Classify "category": the single subject area this prompt is about, used to group prompts into clusters. \
+Use 1-3 words in Title Case. Pick the subject that best captures what the prompt actually does — choose \
+distinct, well-separated subjects and do NOT force unrelated prompts into the same bucket. Good examples: \
+"Image Generation", "Video Generation", "Coding", "Writing", "Marketing", "Research", "Data Analysis", \
+"Learning", "Productivity", "Design". If a list of existing subjects is provided, reuse one of those names \
+ONLY when this prompt is genuinely about that same area (this just keeps naming consistent, e.g. avoids \
+"Learning" vs "Education"); if the prompt is about a different area, create a new concise subject rather \
+than forcing a loose fit.
 
 Always respond with the required JSON fields only.`
 
@@ -98,11 +102,12 @@ export async function analyzePrompt(input: {
     parts.push({ text: input.text })
   }
 
-  // Feed back the subjects already in use so the model reuses them instead of
-  // inventing near-duplicates ("Education" vs "Learning"), keeping clusters tight.
+  // Feed back the subjects already in use only as a naming-consistency hint —
+  // reuse a name when the area truly matches, but don't collapse different
+  // prompts into one bucket (see instruction 7).
   if (input.knownCategories && input.knownCategories.length > 0) {
     parts.push({
-      text: `Existing subjects — reuse one of these for "category" if it fits, otherwise coin a concise new one: ${input.knownCategories
+      text: `Existing subjects (for naming consistency only — reuse one of these for "category" ONLY if this prompt is truly about that same area, otherwise create a new distinct subject): ${input.knownCategories
         .slice(0, 50)
         .join(', ')}`,
     })
