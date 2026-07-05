@@ -12,7 +12,9 @@ create table if not exists public.prompts (
   tags text[] not null default '{}',
   raw_analysis jsonb,
   is_favorite boolean not null default false,
-  media_type text not null default 'text' check (media_type in ('image', 'video', 'text'))
+  media_type text not null default 'text' check (media_type in ('image', 'video', 'text')),
+  -- High-level AI-assigned subject used to cluster prompts (e.g. "Learning").
+  category text
 );
 
 -- Idempotent for databases created before these columns existed.
@@ -20,11 +22,13 @@ alter table public.prompts add column if not exists is_favorite boolean not null
 alter table public.prompts add column if not exists media_type text not null default 'text';
 alter table public.prompts drop constraint if exists prompts_media_type_check;
 alter table public.prompts add constraint prompts_media_type_check check (media_type in ('image', 'video', 'text'));
+alter table public.prompts add column if not exists category text;
 
 create index if not exists prompts_created_at_idx on public.prompts (created_at desc);
 create index if not exists prompts_tags_idx on public.prompts using gin (tags);
 create index if not exists prompts_favorite_idx on public.prompts (is_favorite);
 create index if not exists prompts_media_type_idx on public.prompts (media_type);
+create index if not exists prompts_category_idx on public.prompts (category);
 create index if not exists prompts_search_idx on public.prompts
   using gin (to_tsvector('english', title || ' ' || coalesce(description, '') || ' ' || content));
 

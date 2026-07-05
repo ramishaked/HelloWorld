@@ -15,6 +15,17 @@ async function contentExists(admin: SupabaseClient, content: string): Promise<bo
   return (data?.length ?? 0) > 0
 }
 
+// The distinct subjects already in use, fed back to Gemini so it reuses them
+// instead of coining near-duplicates.
+async function getKnownCategories(admin: SupabaseClient): Promise<string[]> {
+  const { data } = await admin.from('prompts').select('category').not('category', 'is', null)
+  const set = new Set<string>()
+  for (const row of data ?? []) {
+    if (row.category) set.add(row.category as string)
+  }
+  return Array.from(set)
+}
+
 async function insertAnalyzedPrompt(
   admin: SupabaseClient,
   analysis: PromptAnalysis
@@ -30,6 +41,7 @@ async function insertAnalyzedPrompt(
     tags: analysis.tags,
     raw_analysis: analysis,
     media_type: analysis.media_type,
+    category: analysis.category,
   })
   if (error) return { error: error.message }
 
@@ -44,8 +56,10 @@ export async function createPromptFromText(text: string): Promise<SaveResult> {
   }
 
   try {
-    const analysis = await analyzePrompt({ text: trimmed })
-    return await insertAnalyzedPrompt(createAdminClient(), analysis)
+    const admin = createAdminClient()
+    const knownCategories = await getKnownCategories(admin)
+    const analysis = await analyzePrompt({ text: trimmed, knownCategories })
+    return await insertAnalyzedPrompt(admin, analysis)
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to save prompt.' }
   }
@@ -62,10 +76,12 @@ export async function createPromptFromImage(formData: FormData): Promise<SaveRes
     const base64 = Buffer.from(arrayBuffer).toString('base64')
     const mimeType = file.type || 'image/png'
 
+    const admin = createAdminClient()
+    const knownCategories = await getKnownCategories(admin)
     // OCR happens here; only the extracted text is persisted — the image
     // itself is never uploaded or stored.
-    const analysis = await analyzePrompt({ imageBase64: base64, imageMimeType: mimeType })
-    return await insertAnalyzedPrompt(createAdminClient(), analysis)
+    const analysis = await analyzePrompt({ imageBase64: base64, imageMimeType: mimeType, knownCategories })
+    return await insertAnalyzedPrompt(admin, analysis)
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to save prompt.' }
   }
@@ -170,7 +186,8 @@ export async function updatePrompt(id: string, patch: PromptPatch): Promise<Acti
 
 // Re-runs Gemini enrichment on an existing prompt's content and refreshes its
 // classification/metadata. The (possibly hand-edited) title and content are
-// preserved on purpose — only description, tags, media_type, raw_analysis change.
+// preserved on purpose — only description, tags, media_type, category,
+// raw_analysis change. This is what backfills `category` onto older prompts.
 // `revalidate` is skipped during bulk runs so the page refetches once at the end
 // rather than after every single prompt.
 export async function reanalyzePrompt(id: string, revalidate = true): Promise<ActionResult> {
@@ -184,13 +201,15 @@ export async function reanalyzePrompt(id: string, revalidate = true): Promise<Ac
     if (fetchError) return { error: fetchError.message }
     if (!data?.content) return { error: 'Prompt has no content to analyze.' }
 
-    const analysis = await analyzePrompt({ text: data.content })
+    const knownCategories = await getKnownCategories(admin)
+    const analysis = await analyzePrompt({ text: data.content, knownCategories })
     const { error } = await admin
       .from('prompts')
       .update({
         description: analysis.description,
         tags: analysis.tags,
         media_type: analysis.media_type,
+        category: analysis.category,
         raw_analysis: analysis,
       })
       .eq('id', id)
@@ -210,6 +229,7 @@ export type ImportRow = {
   tags?: unknown
   media_type?: unknown
   is_favorite?: unknown
+  category?: unknown
 }
 
 // Inserts prompts from a backup file. Rows whose content already exists are
@@ -246,6 +266,10 @@ export async function importPrompts(
         tags: Array.isArray(row.tags) ? row.tags.map(String).slice(0, 12) : [],
         media_type: media,
         is_favorite: row.is_favorite === true,
+        category:
+          typeof row.category === 'string' && row.category.trim()
+            ? row.category.trim().slice(0, 40)
+            : null,
       })
       if (error) return { error: error.message }
       imported++

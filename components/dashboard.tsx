@@ -6,6 +6,7 @@ import {
   ClipboardPaste,
   Filter,
   Image as ImageIcon,
+  Layers,
   Loader2,
   Search,
   Sparkles,
@@ -68,9 +69,11 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [isPending, startTransition] = useTransition()
   const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const [isSubjectsOpen, setIsSubjectsOpen] = useState(false)
   const [selectedTopics, setSelectedTopics] = useState<string[]>([])
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [selectedMediaTypes, setSelectedMediaTypes] = useState<MediaType[]>([])
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [bulk, setBulk] = useState<{
     done: number
     total: number
@@ -235,6 +238,17 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
     return Array.from(tags).sort()
   }, [initialPrompts])
 
+  // Subject clusters: group by the AI-assigned category, counts sorted desc.
+  const clusters = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const prompt of initialPrompts) {
+      if (prompt.category) counts.set(prompt.category, (counts.get(prompt.category) ?? 0) + 1)
+    }
+    return Array.from(counts, ([name, count]) => ({ name, count })).sort(
+      (a, b) => b.count - a.count || a.name.localeCompare(b.name)
+    )
+  }, [initialPrompts])
+
   function toggleTopic(tag: string) {
     setSelectedTopics((current) =>
       current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag]
@@ -247,10 +261,15 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
     )
   }
 
+  function toggleCategory(name: string) {
+    setSelectedCategory((current) => (current === name ? null : name))
+  }
+
   function clearFilters() {
     setSelectedTopics([])
     setFavoritesOnly(false)
     setSelectedMediaTypes([])
+    setSelectedCategory(null)
   }
 
   const activeFilterCount =
@@ -259,6 +278,7 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return initialPrompts.filter((prompt) => {
+      if (selectedCategory && prompt.category !== selectedCategory) return false
       if (favoritesOnly && !prompt.is_favorite) return false
       if (selectedMediaTypes.length > 0 && !selectedMediaTypes.includes(prompt.media_type)) {
         return false
@@ -272,7 +292,7 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
         .toLowerCase()
       return haystack.includes(q)
     })
-  }, [initialPrompts, query, selectedTopics, favoritesOnly, selectedMediaTypes])
+  }, [initialPrompts, query, selectedTopics, favoritesOnly, selectedMediaTypes, selectedCategory])
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-3 px-6 py-4">
@@ -353,6 +373,24 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
         </div>
         <button
           type="button"
+          onClick={() => setIsSubjectsOpen((open) => !open)}
+          aria-expanded={isSubjectsOpen}
+          className={`relative inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors sm:py-2 ${
+            isSubjectsOpen || selectedCategory
+              ? 'border-emerald-600/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+              : 'border-neutral-200 bg-neutral-50 text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400'
+          }`}
+        >
+          <Layers className="size-4" />
+          <span className="hidden sm:inline">Subjects</span>
+          {selectedCategory && (
+            <span className="flex size-4 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-semibold text-neutral-950">
+              1
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
           onClick={() => setIsFilterOpen((open) => !open)}
           aria-expanded={isFilterOpen}
           className={`relative inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors sm:py-2 ${
@@ -370,6 +408,45 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
           )}
         </button>
       </div>
+
+      {isSubjectsOpen && (
+        <div className="flex flex-col gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+          {clusters.length === 0 ? (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              Subjects appear as prompts are analyzed. Run{' '}
+              <span className="font-medium text-neutral-700 dark:text-neutral-200">Re-analyze all</span>{' '}
+              from the ⋯ menu to categorize existing prompts.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {clusters.map((cluster) => (
+                <button
+                  key={cluster.name}
+                  type="button"
+                  onClick={() => toggleCategory(cluster.name)}
+                  aria-pressed={selectedCategory === cluster.name}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs transition-colors ${
+                    selectedCategory === cluster.name
+                      ? 'bg-emerald-500 text-neutral-950'
+                      : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700'
+                  }`}
+                >
+                  {cluster.name}
+                  <span
+                    className={`rounded-full px-1.5 text-[10px] font-semibold ${
+                      selectedCategory === cluster.name
+                        ? 'bg-neutral-950/15 text-neutral-950'
+                        : 'bg-neutral-300 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300'
+                    }`}
+                  >
+                    {cluster.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {isFilterOpen && (
         <div className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/60">

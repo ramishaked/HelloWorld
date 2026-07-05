@@ -17,6 +17,10 @@ chat UI chrome like timestamps or button labels) but preserving the actual promp
 Midjourney/DALL-E/Stable Diffusion/Imagen-style visual description), a VIDEO (e.g. a Sora/Veo/Runway-style \
 shot description), or is it a regular text/chat prompt with no media-generation intent? Respond with \
 exactly one of: "image", "video", "text".
+7. Classify "category": ONE broad, high-level subject that this prompt belongs to, used to group prompts \
+into clusters. Keep it 1-3 words in Title Case (e.g. "Learning", "Image Generation", "Coding", "Marketing", \
+"Writing"). Prefer a general subject over a narrow one. If a list of existing subjects is provided, reuse \
+the best-fitting one verbatim; only coin a new subject when none fits.
 
 Always respond with the required JSON fields only.`
 
@@ -28,6 +32,7 @@ export type PromptAnalysis = {
   tags: string[]
   clean_content: string
   media_type: MediaType
+  category: string
 }
 
 const responseSchema = {
@@ -41,8 +46,9 @@ const responseSchema = {
     },
     clean_content: { type: Type.STRING },
     media_type: { type: Type.STRING, enum: ['image', 'video', 'text'] },
+    category: { type: Type.STRING },
   },
-  required: ['title', 'description', 'tags', 'clean_content', 'media_type'],
+  required: ['title', 'description', 'tags', 'clean_content', 'media_type', 'category'],
 }
 
 let client: GoogleGenAI | null = null
@@ -80,6 +86,7 @@ export async function analyzePrompt(input: {
   text?: string
   imageBase64?: string
   imageMimeType?: string
+  knownCategories?: string[]
 }): Promise<PromptAnalysis> {
   const parts: Part[] = []
 
@@ -88,6 +95,16 @@ export async function analyzePrompt(input: {
   }
   if (input.text) {
     parts.push({ text: input.text })
+  }
+
+  // Feed back the subjects already in use so the model reuses them instead of
+  // inventing near-duplicates ("Education" vs "Learning"), keeping clusters tight.
+  if (input.knownCategories && input.knownCategories.length > 0) {
+    parts.push({
+      text: `Existing subjects — reuse one of these for "category" if it fits, otherwise coin a concise new one: ${input.knownCategories
+        .slice(0, 50)
+        .join(', ')}`,
+    })
   }
 
   if (parts.length === 0) {
@@ -113,11 +130,17 @@ export async function analyzePrompt(input: {
   const mediaType: MediaType =
     parsed.media_type === 'image' || parsed.media_type === 'video' ? parsed.media_type : 'text'
 
+  const category =
+    typeof parsed.category === 'string' && parsed.category.trim()
+      ? parsed.category.trim().slice(0, 40)
+      : 'General'
+
   return {
     title: (parsed.title || 'Untitled prompt').slice(0, 120),
     description: parsed.description || '',
     tags: Array.isArray(parsed.tags) ? parsed.tags.slice(0, 5).map(String) : [],
     clean_content: parsed.clean_content || input.text || '',
     media_type: mediaType,
+    category,
   }
 }

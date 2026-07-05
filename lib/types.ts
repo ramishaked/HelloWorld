@@ -10,4 +10,5 @@ export type Prompt = {
   raw_analysis: unknown
   is_favorite: boolean
   media_type: MediaType
+  category: string | null
 }
