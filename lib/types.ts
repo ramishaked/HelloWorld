@@ -1,3 +1,5 @@
+import type { MediaType } from '@/lib/gemini'
+
 export type Prompt = {
   id: string
   created_at: string
@@ -7,4 +9,5 @@ export type Prompt = {
   tags: string[]
   raw_analysis: unknown
   is_favorite: boolean
+  media_type: MediaType
 }

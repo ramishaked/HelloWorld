@@ -206,16 +206,8 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
   }, [initialPrompts, query, selectedTopics, favoritesOnly])
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-6 py-6">
-      <div
-        className={`flex flex-wrap items-center gap-3 rounded-xl border border-dashed px-4 py-3 text-sm transition-colors ${
-          isPending
-            ? 'border-emerald-600/60 bg-emerald-500/5 text-emerald-300'
-            : status.kind === 'error'
-              ? 'border-red-600/60 bg-red-500/5 text-red-300'
-              : 'border-neutral-800 text-neutral-500'
-        }`}
-      >
+    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-3 px-6 py-4">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={handlePasteTap}
@@ -225,13 +217,9 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
           {isPending ? <Loader2 className="size-4 animate-spin" /> : <ClipboardPaste className="size-4" />}
           {isPending ? 'Saving...' : 'Paste'}
         </button>
-        <span>
-          {isPending
-            ? 'Analyzing and saving your prompt...'
-            : status.kind === 'error'
-              ? status.message
-              : 'Text or a screenshot — Gemini reads and tags it automatically.'}
-        </span>
+        {status.kind === 'error' && (
+          <span className="text-sm text-red-400">{status.message}</span>
+        )}
       </div>
 
       <div className="flex gap-2">

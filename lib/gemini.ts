@@ -13,14 +13,21 @@ Your job:
 4. Produce 3-5 short lowercase keyword tags for filtering (single words or short phrases, no hashtags).
 5. Produce "clean_content": the prompt text itself, cleaned up (fix obvious OCR artifacts, trim boilerplate \
 chat UI chrome like timestamps or button labels) but preserving the actual prompt wording and intent.
+6. Classify "media_type": is this prompt written to make a generative model produce an IMAGE (e.g. a \
+Midjourney/DALL-E/Stable Diffusion/Imagen-style visual description), a VIDEO (e.g. a Sora/Veo/Runway-style \
+shot description), or is it a regular text/chat prompt with no media-generation intent? Respond with \
+exactly one of: "image", "video", "text".
 
 Always respond with the required JSON fields only.`
+
+export type MediaType = 'image' | 'video' | 'text'
 
 export type PromptAnalysis = {
   title: string
   description: string
   tags: string[]
   clean_content: string
+  media_type: MediaType
 }
 
 const responseSchema = {
@@ -33,8 +40,9 @@ const responseSchema = {
       items: { type: Type.STRING },
     },
     clean_content: { type: Type.STRING },
+    media_type: { type: Type.STRING, enum: ['image', 'video', 'text'] },
   },
-  required: ['title', 'description', 'tags', 'clean_content'],
+  required: ['title', 'description', 'tags', 'clean_content', 'media_type'],
 }
 
 let client: GoogleGenAI | null = null
@@ -84,11 +92,14 @@ export async function analyzePrompt(input: {
   }
 
   const parsed = JSON.parse(raw) as Partial<PromptAnalysis>
+  const mediaType: MediaType =
+    parsed.media_type === 'image' || parsed.media_type === 'video' ? parsed.media_type : 'text'
 
   return {
     title: (parsed.title || 'Untitled prompt').slice(0, 120),
     description: parsed.description || '',
     tags: Array.isArray(parsed.tags) ? parsed.tags.slice(0, 5).map(String) : [],
     clean_content: parsed.clean_content || input.text || '',
+    media_type: mediaType,
   }
 }

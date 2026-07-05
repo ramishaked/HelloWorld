@@ -21,6 +21,7 @@ export async function createPromptFromText(text: string): Promise<ActionResult> 
       content: analysis.clean_content,
       tags: analysis.tags,
       raw_analysis: analysis,
+      media_type: analysis.media_type,
     })
 
     if (error) return { error: error.message }
@@ -54,6 +55,7 @@ export async function createPromptFromImage(formData: FormData): Promise<ActionR
       content: analysis.clean_content,
       tags: analysis.tags,
       raw_analysis: analysis,
+      media_type: analysis.media_type,
     })
 
     if (error) return { error: error.message }
