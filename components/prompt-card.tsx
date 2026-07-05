@@ -46,10 +46,16 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
             }`}
           />
           {prompt.media_type === 'image' && (
-            <ImageIcon className="size-3.5 shrink-0 text-sky-400" aria-label="Image prompt" />
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-400">
+              <ImageIcon className="size-3" />
+              Image
+            </span>
           )}
           {prompt.media_type === 'video' && (
-            <Video className="size-3.5 shrink-0 text-fuchsia-400" aria-label="Video prompt" />
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-fuchsia-500/15 px-1.5 py-0.5 text-[10px] font-medium text-fuchsia-400">
+              <Video className="size-3" />
+              Video
+            </span>
           )}
           <h3 className="truncate text-sm font-semibold text-neutral-100">{prompt.title}</h3>
         </button>

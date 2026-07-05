@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ClipboardPaste, Filter, Loader2, Search, Star, X } from 'lucide-react'
+import { ClipboardPaste, Filter, Image as ImageIcon, Loader2, Search, Star, Video, X } from 'lucide-react'
 import { createPromptFromImage, createPromptFromText } from '@/app/actions'
 import { PromptCard } from '@/components/prompt-card'
+import type { MediaType } from '@/lib/gemini'
 import type { Prompt } from '@/lib/types'
 
 type Status = { kind: 'idle' } | { kind: 'saving' } | { kind: 'error'; message: string }
@@ -53,6 +54,7 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [selectedTopics, setSelectedTopics] = useState<string[]>([])
   const [favoritesOnly, setFavoritesOnly] = useState(false)
+  const [selectedMediaTypes, setSelectedMediaTypes] = useState<MediaType[]>([])
 
   const saveImage = useCallback(
     (file: File) => {
@@ -183,17 +185,28 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
     )
   }
 
+  function toggleMediaType(mediaType: MediaType) {
+    setSelectedMediaTypes((current) =>
+      current.includes(mediaType) ? current.filter((t) => t !== mediaType) : [...current, mediaType]
+    )
+  }
+
   function clearFilters() {
     setSelectedTopics([])
     setFavoritesOnly(false)
+    setSelectedMediaTypes([])
   }
 
-  const activeFilterCount = selectedTopics.length + (favoritesOnly ? 1 : 0)
+  const activeFilterCount =
+    selectedTopics.length + selectedMediaTypes.length + (favoritesOnly ? 1 : 0)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return initialPrompts.filter((prompt) => {
       if (favoritesOnly && !prompt.is_favorite) return false
+      if (selectedMediaTypes.length > 0 && !selectedMediaTypes.includes(prompt.media_type)) {
+        return false
+      }
       if (selectedTopics.length > 0 && !selectedTopics.some((tag) => prompt.tags.includes(tag))) {
         return false
       }
@@ -203,7 +216,7 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
         .toLowerCase()
       return haystack.includes(q)
     })
-  }, [initialPrompts, query, selectedTopics, favoritesOnly])
+  }, [initialPrompts, query, selectedTopics, favoritesOnly, selectedMediaTypes])
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-3 px-6 py-4">
@@ -254,18 +267,46 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
 
       {isFilterOpen && (
         <div className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => setFavoritesOnly((v) => !v)}
-              aria-pressed={favoritesOnly}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
-                favoritesOnly ? 'bg-amber-500/10 text-amber-400' : 'text-neutral-400 hover:bg-neutral-800'
-              }`}
-            >
-              <Star className={`size-3.5 ${favoritesOnly ? 'fill-amber-400' : ''}`} />
-              Favorites only
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setFavoritesOnly((v) => !v)}
+                aria-pressed={favoritesOnly}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
+                  favoritesOnly ? 'bg-amber-500/10 text-amber-400' : 'text-neutral-400 hover:bg-neutral-800'
+                }`}
+              >
+                <Star className={`size-3.5 ${favoritesOnly ? 'fill-amber-400' : ''}`} />
+                Favorites
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleMediaType('image')}
+                aria-pressed={selectedMediaTypes.includes('image')}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
+                  selectedMediaTypes.includes('image')
+                    ? 'bg-sky-500/10 text-sky-400'
+                    : 'text-neutral-400 hover:bg-neutral-800'
+                }`}
+              >
+                <ImageIcon className="size-3.5" />
+                Image
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleMediaType('video')}
+                aria-pressed={selectedMediaTypes.includes('video')}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
+                  selectedMediaTypes.includes('video')
+                    ? 'bg-fuchsia-500/10 text-fuchsia-400'
+                    : 'text-neutral-400 hover:bg-neutral-800'
+                }`}
+              >
+                <Video className="size-3.5" />
+                Video
+              </button>
+            </div>
             {activeFilterCount > 0 && (
               <button
                 type="button"
