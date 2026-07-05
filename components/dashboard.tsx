@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ClipboardPaste,
@@ -14,7 +14,7 @@ import {
   Video,
   X,
 } from 'lucide-react'
-import { createPromptFromImage, createPromptFromText, reanalyzePrompt } from '@/app/actions'
+import { createPromptFromImage, createPromptFromText, reclusterSubjects } from '@/app/actions'
 import { PromptCard } from '@/components/prompt-card'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { ExportImportMenu } from '@/components/export-import-menu'
@@ -36,31 +36,77 @@ const MAX_IMAGE_DIMENSION = 2000
 const IMAGE_QUALITY = 0.9
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 
+type CanvasSource = {
+  width: number
+  height: number
+  draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void
+  cleanup: () => void
+}
+
+// Decode an image file into something drawable. Tries createImageBitmap first,
+// then falls back to an <img> element (which on iOS Safari can render formats
+// like HEIC that createImageBitmap may refuse). Returns null if neither works.
+async function decodeImage(file: File): Promise<CanvasSource | null> {
+  if (typeof createImageBitmap !== 'undefined') {
+    try {
+      const bitmap = await createImageBitmap(file)
+      return {
+        width: bitmap.width,
+        height: bitmap.height,
+        draw: (ctx, w, h) => ctx.drawImage(bitmap, 0, 0, w, h),
+        cleanup: () => bitmap.close(),
+      }
+    } catch {
+      // fall through to the <img> path
+    }
+  }
+
+  try {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.src = url
+    await img.decode()
+    return {
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      draw: (ctx, w, h) => ctx.drawImage(img, 0, 0, w, h),
+      cleanup: () => URL.revokeObjectURL(url),
+    }
+  } catch {
+    return null
+  }
+}
+
+// Best-effort: shrink the image so it fits under the upload limit. If anything
+// fails (unsupported format, canvas quirk, memory), fall back to the original
+// bytes — a decode hiccup must never block the upload, since Gemini accepts
+// png/jpeg/webp/heic/heif directly.
 async function downscaleImage(file: File): Promise<File> {
-  if (typeof createImageBitmap === 'undefined') return file
+  try {
+    const src = await decodeImage(file)
+    if (!src) return file
+    try {
+      const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(src.width, src.height))
+      const width = Math.round(src.width * scale)
+      const height = Math.round(src.height * scale)
 
-  const bitmap = await createImageBitmap(file)
-  const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height))
-  const width = Math.round(bitmap.width * scale)
-  const height = Math.round(bitmap.height * scale)
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return file
+      src.draw(ctx, width, height)
 
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    bitmap.close()
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', IMAGE_QUALITY)
+      )
+      return blob ? new File([blob], 'pasted.jpg', { type: 'image/jpeg' }) : file
+    } finally {
+      src.cleanup()
+    }
+  } catch {
     return file
   }
-  ctx.drawImage(bitmap, 0, 0, width, height)
-  bitmap.close()
-
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, 'image/jpeg', IMAGE_QUALITY)
-  )
-  if (!blob) return file
-
-  return new File([blob], 'pasted.jpg', { type: 'image/jpeg' })
 }
 
 export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
@@ -74,62 +120,37 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [selectedMediaTypes, setSelectedMediaTypes] = useState<MediaType[]>([])
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [bulk, setBulk] = useState<{
-    done: number
-    total: number
-    errors: number
-    running: boolean
-  } | null>(null)
-  const cancelBulkRef = useRef(false)
+  const [organize, setOrganize] = useState<{ running: boolean; message: string | null } | null>(
+    null
+  )
 
-  async function handleReanalyzeAll() {
-    const targets = initialPrompts
-    if (targets.length === 0 || bulk?.running) return
+  // One Gemini call re-clusters every prompt into a coherent set of subjects.
+  async function handleReorganizeSubjects() {
+    if (initialPrompts.length === 0 || organize?.running) return
     if (
       !confirm(
-        `Re-analyze all ${targets.length} prompts? This runs the AI on each one and may take a while.`
+        `Reorganize all ${initialPrompts.length} prompts into subjects? This uses one AI call to re-cluster them.`
       )
     ) {
       return
     }
 
-    cancelBulkRef.current = false
-    let done = 0
-    let errors = 0
-    setBulk({ done, total: targets.length, errors, running: true })
-
+    setOrganize({ running: true, message: null })
     try {
-      for (let i = 0; i < targets.length; i++) {
-        if (cancelBulkRef.current) break
-        try {
-          // Race each call against a timeout so one hung/slow request can't
-          // wedge the whole run — count it as a failure and move on.
-          const result = await Promise.race([
-            reanalyzePrompt(targets[i].id, false),
-            new Promise<{ error: string }>((_, reject) =>
-              setTimeout(() => reject(new Error('timeout')), 60000)
-            ),
-          ])
-          if ('error' in result) errors++
-        } catch {
-          // Rejected (network error, function timeout, or our cap): count and
-          // keep going rather than freezing the progress bar.
-          errors++
-        }
-        done++
-        setBulk({ done, total: targets.length, errors, running: true })
-
-        // Small gap between calls to stay under the (low) free-tier rate limit.
-        if (i < targets.length - 1 && !cancelBulkRef.current) {
-          await new Promise((resolve) => setTimeout(resolve, 1200))
-        }
+      const result = await reclusterSubjects()
+      if ('error' in result) {
+        setOrganize({ running: false, message: result.error })
+      } else {
+        router.refresh()
+        setOrganize({
+          running: false,
+          message: `Organized ${result.updated} prompts into ${result.subjects} subjects.`,
+        })
       }
+    } catch {
+      setOrganize({ running: false, message: 'Failed to reorganize subjects. Please try again.' })
     } finally {
-      // Always leave the bar in a finished state, even if something unexpected
-      // throws — the spinner can never stick.
-      router.refresh()
-      setBulk({ done, total: targets.length, errors, running: false })
-      setTimeout(() => setBulk(null), 5000)
+      setTimeout(() => setOrganize(null), 6000)
     }
   }
 
@@ -155,8 +176,12 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
             setStatus({ kind: 'idle' })
             router.refresh()
           }
-        } catch {
-          setStatus({ kind: 'error', message: 'Failed to save the image. Please try again.' })
+        } catch (err) {
+          setStatus({
+            kind: 'error',
+            message:
+              err instanceof Error ? err.message : 'Failed to save the image. Please try again.',
+          })
         }
       })
     },
@@ -339,47 +364,21 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
         <div className="flex items-center gap-2">
           <ExportImportMenu
             prompts={initialPrompts}
-            onReanalyzeAll={handleReanalyzeAll}
-            reanalyzeRunning={bulk?.running ?? false}
+            onReorganize={handleReorganizeSubjects}
+            reorganizeRunning={organize?.running ?? false}
           />
           <ThemeToggle />
         </div>
       </div>
 
-      {bulk && (
-        <div className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 dark:border-neutral-800 dark:bg-neutral-900/60">
-          {bulk.running ? (
+      {organize && (
+        <div className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-300">
+          {organize.running ? (
             <Loader2 className="size-4 shrink-0 animate-spin text-emerald-600 dark:text-emerald-400" />
           ) : (
             <Sparkles className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
           )}
-          <div className="flex-1">
-            <div className="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
-              <span>
-                {bulk.running ? 'Re-analyzing' : 'Re-analyzed'} {bulk.done}/{bulk.total}
-                {bulk.errors > 0 && (
-                  <span className="text-red-600 dark:text-red-400"> · {bulk.errors} failed</span>
-                )}
-              </span>
-              {bulk.running && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    cancelBulkRef.current = true
-                  }}
-                  className="text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-100"
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
-              <div
-                className="h-full rounded-full bg-emerald-500 transition-all duration-200"
-                style={{ width: `${Math.round((bulk.done / bulk.total) * 100)}%` }}
-              />
-            </div>
-          </div>
+          <span>{organize.running ? 'Reorganizing subjects…' : organize.message}</span>
         </div>
       )}
 
@@ -436,8 +435,8 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
           {clusters.length === 0 ? (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
               Subjects appear as prompts are analyzed. Run{' '}
-              <span className="font-medium text-neutral-700 dark:text-neutral-200">Re-analyze all</span>{' '}
-              from the ⋯ menu to categorize existing prompts.
+              <span className="font-medium text-neutral-700 dark:text-neutral-200">Reorganize subjects</span>{' '}
+              from the ⋯ menu to cluster existing prompts.
             </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">

@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { analyzePrompt, translateText, type PromptAnalysis } from '@/lib/gemini'
+import { analyzePrompt, clusterSubjects, translateText, type PromptAnalysis } from '@/lib/gemini'
 import { createAdminClient } from '@/lib/supabase-admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -219,6 +219,35 @@ export async function reanalyzePrompt(id: string, revalidate = true): Promise<Ac
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to re-analyze prompt.' }
+  }
+}
+
+// Re-derives subjects across the WHOLE vault in a single Gemini call and
+// rewrites every prompt's category, so clusters stay coherent and consolidated.
+// One AI call regardless of prompt count (previously it was one call per prompt).
+export async function reclusterSubjects(): Promise<
+  { subjects: number; updated: number } | { error: string }
+> {
+  try {
+    const admin = createAdminClient()
+    const { data, error } = await admin.from('prompts').select('id, title, description')
+    if (error) return { error: error.message }
+
+    const prompts = (data ?? []) as { id: string; title: string; description: string | null }[]
+    if (prompts.length === 0) return { subjects: 0, updated: 0 }
+
+    const assignments = await clusterSubjects(prompts)
+
+    let updated = 0
+    for (const { id, subject } of assignments) {
+      const { error: upErr } = await admin.from('prompts').update({ category: subject }).eq('id', id)
+      if (!upErr) updated++
+    }
+
+    revalidatePath('/')
+    return { subjects: new Set(assignments.map((a) => a.subject)).size, updated }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to reorganize subjects.' }
   }
 }
 

@@ -9,12 +9,12 @@ import type { Prompt } from '@/lib/types'
 
 export function ExportImportMenu({
   prompts,
-  onReanalyzeAll,
-  reanalyzeRunning,
+  onReorganize,
+  reorganizeRunning,
 }: {
   prompts: Prompt[]
-  onReanalyzeAll: () => void
-  reanalyzeRunning: boolean
+  onReorganize: () => void
+  reorganizeRunning: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -118,15 +118,15 @@ export function ExportImportMenu({
 
           <button
             type="button"
-            disabled={reanalyzeRunning || prompts.length === 0}
+            disabled={reorganizeRunning || prompts.length === 0}
             className={`${itemClass} disabled:opacity-50`}
             onClick={() => {
               setOpen(false)
-              onReanalyzeAll()
+              onReorganize()
             }}
           >
             <Sparkles className="size-4" />
-            Re-analyze all
+            Reorganize subjects
           </button>
 
           <div className="flex items-center gap-2 px-3 pt-1 text-[11px] text-neutral-400 dark:text-neutral-600">

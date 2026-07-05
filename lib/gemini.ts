@@ -1,6 +1,8 @@
 import { GoogleGenAI, Type, createPartFromBase64, type Part } from '@google/genai'
 
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+// flash-lite has a more generous free tier than flash and is multimodal
+// (handles image OCR), which is plenty for enrichment + classification.
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite'
 
 const SYSTEM_INSTRUCTION = `You are the enrichment engine for PromptVault, a tool developers use to \
 save and reuse AI prompts. You will receive either pasted text or a screenshot/image \
@@ -192,4 +194,78 @@ export async function analyzePrompt(input: {
     media_type: mediaType,
     category,
   }
+}
+
+const CLUSTER_INSTRUCTION = `You organize a personal library of AI prompts into a small, coherent set of \
+subjects (clusters). You are given a numbered list of prompts as "title — description".
+
+Group them into broad, high-level subjects such as "Learning", "Image Generation", "Video Generation", \
+"Coding", "Writing", "Marketing", "Research", "Productivity", "Design".
+
+Rules:
+- Use a TIGHT, consistent set of subjects. Merge near-duplicates (never both "Coding" and "Programming").
+- Aim for roughly 3-8 subjects for a collection this size — fewer if the prompts are genuinely similar. \
+NEVER create one subject per prompt, and don't force everything into a single subject unless they truly \
+all share one theme.
+- Assign EVERY prompt to exactly one subject, referenced by its number.
+- Subjects are 1-3 words, Title Case.`
+
+const clusterSchema = {
+  type: Type.OBJECT,
+  properties: {
+    assignments: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          index: { type: Type.INTEGER },
+          subject: { type: Type.STRING },
+        },
+        required: ['index', 'subject'],
+      },
+    },
+  },
+  required: ['assignments'],
+}
+
+export type SubjectAssignment = { id: string; subject: string }
+
+// Global, single-call re-clustering: sees ALL prompts at once and returns a
+// coherent subject for each, so clusters stay consolidated instead of the
+// order-dependent drift of categorizing one prompt at a time.
+export async function clusterSubjects(
+  prompts: { id: string; title: string; description: string | null }[]
+): Promise<SubjectAssignment[]> {
+  if (prompts.length === 0) return []
+
+  const list = prompts
+    .map((p, i) => `${i + 1}. ${p.title}${p.description ? ` — ${p.description}` : ''}`)
+    .join('\n')
+
+  const response = await withRetry(() =>
+    getClient().models.generateContent({
+      model: MODEL,
+      contents: [{ role: 'user', parts: [{ text: list }] }],
+      config: {
+        systemInstruction: CLUSTER_INSTRUCTION,
+        responseMimeType: 'application/json',
+        responseSchema: clusterSchema,
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    })
+  )
+
+  const raw = response.text
+  if (!raw) {
+    throw new Error('Gemini returned an empty response.')
+  }
+
+  const parsed = JSON.parse(raw) as { assignments?: { index?: number; subject?: string }[] }
+  const result: SubjectAssignment[] = []
+  for (const a of parsed.assignments ?? []) {
+    const prompt = typeof a.index === 'number' ? prompts[a.index - 1] : undefined
+    const subject = typeof a.subject === 'string' ? a.subject.trim().slice(0, 40) : ''
+    if (prompt && subject) result.push({ id: prompt.id, subject })
+  }
+  return result
 }
