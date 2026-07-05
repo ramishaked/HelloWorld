@@ -18,7 +18,7 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
 
   return (
     <div
-      className={`group flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 transition-opacity ${
+      className={`flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 transition-opacity ${
         isDeleting ? 'opacity-40' : ''
       }`}
     >
@@ -28,9 +28,9 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
           type="button"
           onClick={handleDelete}
           aria-label="Delete prompt"
-          className="shrink-0 rounded-md p-1 text-neutral-500 opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100"
+          className="-m-1.5 shrink-0 rounded-md p-1.5 text-neutral-600 transition-colors hover:bg-red-500/10 hover:text-red-400 active:bg-red-500/10 active:text-red-400"
         >
-          <Trash2 className="size-3.5" />
+          <Trash2 className="size-4" />
         </button>
       </div>
 

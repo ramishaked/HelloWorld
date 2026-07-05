@@ -47,12 +47,15 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), then press `Cmd+V` / `Ctrl+V` anywhere on
-the page to save whatever is on your clipboard — text or an image.
+Open [http://localhost:3000](http://localhost:3000). Tap the **Paste** button (or press
+`Cmd+V` / `Ctrl+V` on desktop) to save whatever is on your clipboard — text or an image.
 
 ## How it works
 
-- Pasting is captured by a global `paste` listener in `components/dashboard.tsx`.
+- Tapping **Paste** reads the clipboard directly via the Async Clipboard API
+  (`navigator.clipboard.read()` / `readText()`) — this is the primary interaction, since iPhone
+  has no keyboard shortcut to listen for. A global `paste` event listener is also wired up as a
+  desktop convenience for `Cmd/Ctrl+V` (`components/dashboard.tsx`).
 - Text goes straight to the `createPromptFromText` Server Action; images are sent (in memory)
   to Gemini for OCR + analysis via `createPromptFromImage` — the image itself is never stored,
   only the text Gemini extracts from it (`app/actions.ts`).
@@ -68,4 +71,19 @@ the page to save whatever is on your clipboard — text or an image.
 
 Push this repo to GitHub and import it on [Vercel](https://vercel.com/new), then set the same
 environment variables (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-`GEMINI_API_KEY`) in the project settings.
+`GEMINI_API_KEY`) in the project settings. Vercel serves everything over HTTPS, which the
+Clipboard API requires.
+
+## Installing on your iPhone (personal use, no App Store)
+
+This is a PWA (`app/manifest.ts`) — you can install it as a home-screen app without going
+through the App Store:
+
+1. Open the deployed URL in **Safari** on your iPhone (must be Safari, not Chrome/other
+   browsers — only Safari can add to the home screen).
+2. Tap the **Share** icon, then **Add to Home Screen**.
+3. Launch it from the home screen icon. It opens full-screen, without Safari's address bar,
+   and behaves like a native app.
+
+Since it's only installed via your own Safari "Add to Home Screen," it's private to your
+device — nothing is published or reviewed anywhere.

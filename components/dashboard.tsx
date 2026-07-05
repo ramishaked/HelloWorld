@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ClipboardPaste, Loader2, Search } from 'lucide-react'
 import { createPromptFromImage, createPromptFromText } from '@/app/actions'
@@ -15,6 +15,42 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [isPending, startTransition] = useTransition()
 
+  const saveImage = useCallback(
+    (file: File) => {
+      setStatus({ kind: 'saving' })
+      const formData = new FormData()
+      formData.set('image', file)
+      startTransition(async () => {
+        const result = await createPromptFromImage(formData)
+        if ('error' in result) {
+          setStatus({ kind: 'error', message: result.error })
+        } else {
+          setStatus({ kind: 'idle' })
+          router.refresh()
+        }
+      })
+    },
+    [router]
+  )
+
+  const saveText = useCallback(
+    (text: string) => {
+      setStatus({ kind: 'saving' })
+      startTransition(async () => {
+        const result = await createPromptFromText(text)
+        if ('error' in result) {
+          setStatus({ kind: 'error', message: result.error })
+        } else {
+          setStatus({ kind: 'idle' })
+          router.refresh()
+        }
+      })
+    },
+    [router]
+  )
+
+  // Desktop convenience: Cmd/Ctrl+V anywhere on the page. iPhone has no such
+  // shortcut, so this is a bonus path, not the primary one (see handlePasteTap below).
   useEffect(() => {
     function handlePaste(event: ClipboardEvent) {
       const target = event.target as HTMLElement | null
@@ -24,45 +60,61 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
       if (!items) return
 
       const imageItem = Array.from(items).find((item) => item.type.startsWith('image/'))
-
       if (imageItem) {
-        event.preventDefault()
         const file = imageItem.getAsFile()
         if (!file) return
-        setStatus({ kind: 'saving' })
-        const formData = new FormData()
-        formData.set('image', file)
-        startTransition(async () => {
-          const result = await createPromptFromImage(formData)
-          if ('error' in result) {
-            setStatus({ kind: 'error', message: result.error })
-          } else {
-            setStatus({ kind: 'idle' })
-            router.refresh()
-          }
-        })
+        event.preventDefault()
+        saveImage(file)
         return
       }
 
       const text = event.clipboardData?.getData('text/plain')
       if (text && text.trim()) {
         event.preventDefault()
-        setStatus({ kind: 'saving' })
-        startTransition(async () => {
-          const result = await createPromptFromText(text)
-          if ('error' in result) {
-            setStatus({ kind: 'error', message: result.error })
-          } else {
-            setStatus({ kind: 'idle' })
-            router.refresh()
-          }
-        })
+        saveText(text)
       }
     }
 
     window.addEventListener('paste', handlePaste)
     return () => window.removeEventListener('paste', handlePaste)
-  }, [router])
+  }, [saveImage, saveText])
+
+  // Primary path on iPhone (and a one-tap option everywhere): read the
+  // clipboard directly via the Async Clipboard API from a tap gesture,
+  // since there's no keyboard shortcut to listen for on a touch device.
+  async function handlePasteTap() {
+    if (!navigator.clipboard) {
+      setStatus({ kind: 'error', message: 'Clipboard access is not available in this browser.' })
+      return
+    }
+
+    try {
+      if (navigator.clipboard.read) {
+        const items = await navigator.clipboard.read()
+        for (const item of items) {
+          const imageType = item.types.find((type) => type.startsWith('image/'))
+          if (imageType) {
+            const blob = await item.getType(imageType)
+            const extension = imageType.split('/')[1] || 'png'
+            saveImage(new File([blob], `pasted.${extension}`, { type: imageType }))
+            return
+          }
+        }
+      }
+
+      const text = await navigator.clipboard.readText()
+      if (text.trim()) {
+        saveText(text)
+      } else {
+        setStatus({ kind: 'error', message: 'Clipboard is empty.' })
+      }
+    } catch {
+      setStatus({
+        kind: 'error',
+        message: 'Could not read the clipboard. Allow clipboard access and try again.',
+      })
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -80,13 +132,14 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-100">PromptVault</h1>
         <p className="text-sm text-neutral-500">
-          Press <kbd className="rounded bg-neutral-800 px-1.5 py-0.5 text-neutral-300">Cmd/Ctrl+V</kbd>{' '}
-          anywhere on this page to save a prompt from your clipboard.
+          Tap Paste below, or press{' '}
+          <kbd className="rounded bg-neutral-800 px-1.5 py-0.5 text-neutral-300">Cmd/Ctrl+V</kbd>{' '}
+          on desktop, to save whatever&rsquo;s on your clipboard.
         </p>
       </header>
 
       <div
-        className={`flex items-center gap-3 rounded-xl border border-dashed px-4 py-3 text-sm transition-colors ${
+        className={`flex flex-wrap items-center gap-3 rounded-xl border border-dashed px-4 py-3 text-sm transition-colors ${
           isPending
             ? 'border-emerald-600/60 bg-emerald-500/5 text-emerald-300'
             : status.kind === 'error'
@@ -94,19 +147,22 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
               : 'border-neutral-800 text-neutral-500'
         }`}
       >
-        {isPending ? (
-          <>
-            <Loader2 className="size-4 animate-spin" />
-            Analyzing and saving your prompt...
-          </>
-        ) : status.kind === 'error' ? (
-          <>{status.message}</>
-        ) : (
-          <>
-            <ClipboardPaste className="size-4" />
-            Waiting for a paste (text or screenshot).
-          </>
-        )}
+        <button
+          type="button"
+          onClick={handlePasteTap}
+          disabled={isPending}
+          className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-neutral-950 transition-colors hover:bg-emerald-400 active:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isPending ? <Loader2 className="size-4 animate-spin" /> : <ClipboardPaste className="size-4" />}
+          {isPending ? 'Saving...' : 'Paste'}
+        </button>
+        <span>
+          {isPending
+            ? 'Analyzing and saving your prompt...'
+            : status.kind === 'error'
+              ? status.message
+              : 'Text or a screenshot — Gemini reads and tags it automatically.'}
+        </span>
       </div>
 
       <div className="relative">
@@ -115,7 +171,7 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search prompts by title, tag, or content..."
-          className="w-full rounded-lg border border-neutral-800 bg-neutral-900/60 py-2 pl-10 pr-3 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-600 focus:outline-none"
+          className="w-full rounded-lg border border-neutral-800 bg-neutral-900/60 py-2.5 pl-10 pr-3 text-base text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-600 focus:outline-none sm:text-sm"
         />
       </div>
 
