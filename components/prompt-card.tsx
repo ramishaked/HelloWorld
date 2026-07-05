@@ -1,13 +1,14 @@
 'use client'
 
-import { useTransition } from 'react'
-import { Trash2 } from 'lucide-react'
+import { useState, useTransition } from 'react'
+import { ChevronDown, Trash2 } from 'lucide-react'
 import { CopyButton } from '@/components/copy-button'
 import { deletePrompt } from '@/app/actions'
 import type { Prompt } from '@/lib/types'
 
 export function PromptCard({ prompt }: { prompt: Prompt }) {
   const [isDeleting, startDeleteTransition] = useTransition()
+  const [isOpen, setIsOpen] = useState(false)
 
   function handleDelete() {
     if (!confirm('Delete this prompt?')) return
@@ -23,7 +24,19 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-semibold text-neutral-100">{prompt.title}</h3>
+        <button
+          type="button"
+          onClick={() => setIsOpen((open) => !open)}
+          aria-expanded={isOpen}
+          className="-m-1 flex flex-1 items-start gap-1.5 rounded-md p-1 text-left"
+        >
+          <ChevronDown
+            className={`mt-0.5 size-4 shrink-0 text-neutral-500 transition-transform ${
+              isOpen ? '' : '-rotate-90'
+            }`}
+          />
+          <h3 className="text-sm font-semibold text-neutral-100">{prompt.title}</h3>
+        </button>
         <button
           type="button"
           onClick={handleDelete}
@@ -34,13 +47,18 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
         </button>
       </div>
 
-      {prompt.description && (
-        <p className="line-clamp-2 text-xs text-neutral-400">{prompt.description}</p>
-      )}
-
-      <p className="line-clamp-4 whitespace-pre-wrap rounded-lg bg-neutral-950/60 p-2.5 font-mono text-xs text-neutral-300">
-        {prompt.content}
-      </p>
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+          isOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        }`}
+      >
+        <div className="flex flex-col gap-3 overflow-hidden">
+          {prompt.description && <p className="text-xs text-neutral-400">{prompt.description}</p>}
+          <p className="whitespace-pre-wrap rounded-lg bg-neutral-950/60 p-2.5 font-mono text-xs text-neutral-300">
+            {prompt.content}
+          </p>
+        </div>
+      </div>
 
       {prompt.tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
