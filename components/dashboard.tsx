@@ -1,9 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ClipboardPaste, Filter, Image as ImageIcon, Loader2, Search, Star, Video, X } from 'lucide-react'
-import { createPromptFromImage, createPromptFromText } from '@/app/actions'
+import {
+  ClipboardPaste,
+  Filter,
+  Image as ImageIcon,
+  Loader2,
+  Search,
+  Sparkles,
+  Star,
+  Video,
+  X,
+} from 'lucide-react'
+import { createPromptFromImage, createPromptFromText, reanalyzePrompt } from '@/app/actions'
 import { PromptCard } from '@/components/prompt-card'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { ExportImportMenu } from '@/components/export-import-menu'
@@ -61,6 +71,42 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
   const [selectedTopics, setSelectedTopics] = useState<string[]>([])
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [selectedMediaTypes, setSelectedMediaTypes] = useState<MediaType[]>([])
+  const [bulk, setBulk] = useState<{
+    done: number
+    total: number
+    errors: number
+    running: boolean
+  } | null>(null)
+  const cancelBulkRef = useRef(false)
+
+  async function handleReanalyzeAll() {
+    const targets = initialPrompts
+    if (targets.length === 0 || bulk?.running) return
+    if (
+      !confirm(
+        `Re-analyze all ${targets.length} prompts? This runs the AI on each one and may take a while.`
+      )
+    ) {
+      return
+    }
+
+    cancelBulkRef.current = false
+    let done = 0
+    let errors = 0
+    setBulk({ done, total: targets.length, errors, running: true })
+
+    for (const prompt of targets) {
+      if (cancelBulkRef.current) break
+      const result = await reanalyzePrompt(prompt.id, false)
+      done++
+      if ('error' in result) errors++
+      setBulk({ done, total: targets.length, errors, running: true })
+    }
+
+    router.refresh()
+    setBulk({ done, total: targets.length, errors, running: false })
+    setTimeout(() => setBulk(null), 5000)
+  }
 
   const saveImage = useCallback(
     (file: File) => {
@@ -249,10 +295,51 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <ExportImportMenu prompts={initialPrompts} />
+          <ExportImportMenu
+            prompts={initialPrompts}
+            onReanalyzeAll={handleReanalyzeAll}
+            reanalyzeRunning={bulk?.running ?? false}
+          />
           <ThemeToggle />
         </div>
       </div>
+
+      {bulk && (
+        <div className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 dark:border-neutral-800 dark:bg-neutral-900/60">
+          {bulk.running ? (
+            <Loader2 className="size-4 shrink-0 animate-spin text-emerald-600 dark:text-emerald-400" />
+          ) : (
+            <Sparkles className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          )}
+          <div className="flex-1">
+            <div className="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
+              <span>
+                {bulk.running ? 'Re-analyzing' : 'Re-analyzed'} {bulk.done}/{bulk.total}
+                {bulk.errors > 0 && (
+                  <span className="text-red-600 dark:text-red-400"> · {bulk.errors} failed</span>
+                )}
+              </span>
+              {bulk.running && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    cancelBulkRef.current = true
+                  }}
+                  className="text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-100"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+              <div
+                className="h-full rounded-full bg-emerald-500 transition-all duration-200"
+                style={{ width: `${Math.round((bulk.done / bulk.total) * 100)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-2">
         <div className="relative flex-1">

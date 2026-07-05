@@ -171,7 +171,9 @@ export async function updatePrompt(id: string, patch: PromptPatch): Promise<Acti
 // Re-runs Gemini enrichment on an existing prompt's content and refreshes its
 // classification/metadata. The (possibly hand-edited) title and content are
 // preserved on purpose — only description, tags, media_type, raw_analysis change.
-export async function reanalyzePrompt(id: string): Promise<ActionResult> {
+// `revalidate` is skipped during bulk runs so the page refetches once at the end
+// rather than after every single prompt.
+export async function reanalyzePrompt(id: string, revalidate = true): Promise<ActionResult> {
   try {
     const admin = createAdminClient()
     const { data, error: fetchError } = await admin
@@ -194,7 +196,7 @@ export async function reanalyzePrompt(id: string): Promise<ActionResult> {
       .eq('id', id)
     if (error) return { error: error.message }
 
-    revalidatePath('/')
+    if (revalidate) revalidatePath('/')
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to re-analyze prompt.' }

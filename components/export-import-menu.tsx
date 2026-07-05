@@ -2,12 +2,20 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Download, FileJson, FileText, Loader2, MoreVertical, Upload } from 'lucide-react'
+import { Download, FileJson, FileText, Loader2, MoreVertical, Sparkles, Upload } from 'lucide-react'
 import { importPrompts, type ImportRow } from '@/app/actions'
 import { exportPromptsAsJson, exportPromptsAsMarkdown } from '@/lib/prompt-export'
 import type { Prompt } from '@/lib/types'
 
-export function ExportImportMenu({ prompts }: { prompts: Prompt[] }) {
+export function ExportImportMenu({
+  prompts,
+  onReanalyzeAll,
+  reanalyzeRunning,
+}: {
+  prompts: Prompt[]
+  onReanalyzeAll: () => void
+  reanalyzeRunning: boolean
+}) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [isImporting, startImport] = useTransition()
@@ -105,6 +113,22 @@ export function ExportImportMenu({ prompts }: { prompts: Prompt[] }) {
             <Upload className="size-4" />
             Import from JSON
           </button>
+
+          <div className="my-1 border-t border-neutral-200 dark:border-neutral-800" />
+
+          <button
+            type="button"
+            disabled={reanalyzeRunning || prompts.length === 0}
+            className={`${itemClass} disabled:opacity-50`}
+            onClick={() => {
+              setOpen(false)
+              onReanalyzeAll()
+            }}
+          >
+            <Sparkles className="size-4" />
+            Re-analyze all
+          </button>
+
           <div className="flex items-center gap-2 px-3 pt-1 text-[11px] text-neutral-400 dark:text-neutral-600">
             <Download className="size-3" />
             {prompts.length} saved
