@@ -6,7 +6,7 @@ title, description, and tags — instantly searchable and copy-ready.
 ## Stack
 
 - **Next.js 16** (App Router, TypeScript, Tailwind CSS)
-- **Supabase** — Postgres for metadata, Storage for pasted screenshots
+- **Supabase** — Postgres for prompt metadata and text
 - **Gemini** (`@google/genai`) — multimodal enrichment (title/description/tags/OCR)
 - **Vercel** — deployment target
 
@@ -16,7 +16,8 @@ title, description, and tags — instantly searchable and copy-ready.
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. Open the SQL editor and run [`supabase/schema.sql`](./supabase/schema.sql). This creates the
-   `prompts` table and a public `prompt-images` storage bucket.
+   `prompts` table. (No storage bucket is needed — pasted images are OCR'd in memory and only
+   the extracted text is stored.)
 3. From **Project Settings → API**, copy the **Project URL** and the **service_role** key
    (not the anon key — the app only talks to Supabase from the server).
 
@@ -52,12 +53,12 @@ the page to save whatever is on your clipboard — text or an image.
 ## How it works
 
 - Pasting is captured by a global `paste` listener in `components/dashboard.tsx`.
-- Text goes straight to the `createPromptFromText` Server Action; images are uploaded to
-  Supabase Storage and sent to Gemini for OCR + analysis via `createPromptFromImage`
-  (`app/actions.ts`).
+- Text goes straight to the `createPromptFromText` Server Action; images are sent (in memory)
+  to Gemini for OCR + analysis via `createPromptFromImage` — the image itself is never stored,
+  only the text Gemini extracts from it (`app/actions.ts`).
 - Gemini (`lib/gemini.ts`) returns structured JSON (title, description, tags, cleaned prompt
   text) using a strict `responseSchema`, so no manual parsing/repair is needed.
-- All database and storage writes happen server-side with the Supabase **service role** key
+- All database writes happen server-side with the Supabase **service role** key
   (`lib/supabase-admin.ts`). Row Level Security is enabled on `prompts` with no client-facing
   policies, so the table can't be read or written directly from the browser.
 - The dashboard (`components/dashboard.tsx`) does client-side search across title,

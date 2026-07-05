@@ -9,7 +9,6 @@ create table if not exists public.prompts (
   title text not null,
   description text,
   content text not null,
-  image_url text,
   tags text[] not null default '{}',
   raw_analysis jsonb
 );
@@ -24,14 +23,5 @@ create index if not exists prompts_search_idx on public.prompts
 -- Enabling RLS with no policies means no client-side key can read/write directly.
 alter table public.prompts enable row level security;
 
--- Storage bucket for pasted screenshots.
-insert into storage.buckets (id, name, public)
-values ('prompt-images', 'prompt-images', true)
-on conflict (id) do nothing;
-
--- Allow public read of images (bucket is public), block anonymous writes.
--- Uploads happen server-side with the service role key, which bypasses this policy.
-drop policy if exists "Public read access for prompt-images" on storage.objects;
-create policy "Public read access for prompt-images"
-  on storage.objects for select
-  using (bucket_id = 'prompt-images');
+-- Note: pasted images are OCR'd by Gemini in-memory and never stored, so no
+-- storage bucket is required.

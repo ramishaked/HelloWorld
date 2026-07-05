@@ -22,15 +22,6 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
         isDeleting ? 'opacity-40' : ''
       }`}
     >
-      {prompt.image_url && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={prompt.image_url}
-          alt=""
-          className="max-h-40 w-full rounded-lg border border-neutral-800 object-cover"
-        />
-      )}
-
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-sm font-semibold text-neutral-100">{prompt.title}</h3>
         <button

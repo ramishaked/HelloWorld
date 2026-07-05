@@ -4,7 +4,6 @@ export type Prompt = {
   title: string
   description: string | null
   content: string
-  image_url: string | null
   tags: string[]
   raw_analysis: unknown
 }
