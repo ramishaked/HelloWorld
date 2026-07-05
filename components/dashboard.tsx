@@ -6,10 +6,15 @@ import { ClipboardPaste, Filter, Image as ImageIcon, Loader2, Search, Star, Vide
 import { createPromptFromImage, createPromptFromText } from '@/app/actions'
 import { PromptCard } from '@/components/prompt-card'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { ExportImportMenu } from '@/components/export-import-menu'
 import type { MediaType } from '@/lib/gemini'
 import type { Prompt } from '@/lib/types'
 
-type Status = { kind: 'idle' } | { kind: 'saving' } | { kind: 'error'; message: string }
+type Status =
+  | { kind: 'idle' }
+  | { kind: 'saving' }
+  | { kind: 'error'; message: string }
+  | { kind: 'info'; message: string }
 
 // We only need enough resolution for Gemini to OCR text out of the image, not
 // the original photo quality, so downscale before upload. This keeps every
@@ -73,6 +78,8 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
           const result = await createPromptFromImage(formData)
           if ('error' in result) {
             setStatus({ kind: 'error', message: result.error })
+          } else if ('duplicate' in result) {
+            setStatus({ kind: 'info', message: 'Already saved — skipped duplicate.' })
           } else {
             setStatus({ kind: 'idle' })
             router.refresh()
@@ -93,6 +100,8 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
           const result = await createPromptFromText(text)
           if ('error' in result) {
             setStatus({ kind: 'error', message: result.error })
+          } else if ('duplicate' in result) {
+            setStatus({ kind: 'info', message: 'Already saved — skipped duplicate.' })
           } else {
             setStatus({ kind: 'idle' })
             router.refresh()
@@ -235,8 +244,14 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
           {status.kind === 'error' && (
             <span className="text-sm text-red-600 dark:text-red-400">{status.message}</span>
           )}
+          {status.kind === 'info' && (
+            <span className="text-sm text-neutral-500 dark:text-neutral-400">{status.message}</span>
+          )}
         </div>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <ExportImportMenu prompts={initialPrompts} />
+          <ThemeToggle />
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -347,17 +362,26 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
         </div>
       )}
 
-      {filtered.length === 0 ? (
+      {isPending || filtered.length > 0 ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {isPending && (
+            <div className="flex animate-pulse flex-col gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/60">
+              <div className="h-4 w-2/3 rounded bg-neutral-200 dark:bg-neutral-800" />
+              <div className="mt-1 flex gap-1.5">
+                <div className="h-3 w-12 rounded-full bg-neutral-200 dark:bg-neutral-800" />
+                <div className="h-3 w-10 rounded-full bg-neutral-200 dark:bg-neutral-800" />
+              </div>
+            </div>
+          )}
+          {filtered.map((prompt) => (
+            <PromptCard key={prompt.id} prompt={prompt} />
+          ))}
+        </div>
+      ) : (
         <div className="flex flex-1 items-center justify-center rounded-xl border border-neutral-200 py-24 text-sm text-neutral-400 dark:border-neutral-800 dark:text-neutral-600">
           {initialPrompts.length === 0
             ? 'No prompts yet. Copy some text or a screenshot, then paste it here.'
             : 'No prompts match your search or filters.'}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filtered.map((prompt) => (
-            <PromptCard key={prompt.id} prompt={prompt} />
-          ))}
         </div>
       )}
     </div>

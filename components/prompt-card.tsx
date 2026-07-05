@@ -8,6 +8,7 @@ import {
   Languages,
   Loader2,
   Pencil,
+  Sparkles,
   Star,
   Trash2,
   Video,
@@ -15,7 +16,15 @@ import {
 } from 'lucide-react'
 import { CopyButton } from '@/components/copy-button'
 import { ShareButton } from '@/components/share-button'
-import { deletePrompt, toggleFavorite, translatePrompt, updatePromptTitle } from '@/app/actions'
+import { PromptBodyEditor } from '@/components/prompt-body-editor'
+import {
+  deletePrompt,
+  reanalyzePrompt,
+  toggleFavorite,
+  translatePrompt,
+  updatePromptTitle,
+} from '@/app/actions'
+import { applyPlaceholders, extractPlaceholders } from '@/lib/placeholders'
 import type { Prompt } from '@/lib/types'
 
 export function PromptCard({ prompt }: { prompt: Prompt }) {
@@ -34,7 +43,23 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
   const [translatedText, setTranslatedText] = useState<string | null>(null)
   const [translateError, setTranslateError] = useState<string | null>(null)
 
-  const displayContent = showTranslation && translatedText ? translatedText : prompt.content
+  const [isEditingBody, setIsEditingBody] = useState(false)
+  const [isReanalyzing, startReanalyzeTransition] = useTransition()
+  const [placeholderValues, setPlaceholderValues] = useState<Record<string, string>>({})
+
+  const placeholders = extractPlaceholders(prompt.content)
+  const baseContent = showTranslation && translatedText ? translatedText : prompt.content
+  const displayContent = placeholders.length
+    ? applyPlaceholders(baseContent, placeholderValues)
+    : baseContent
+  const charCount = displayContent.length
+  const tokenEstimate = Math.max(1, Math.ceil(charCount / 4))
+
+  function handleReanalyze() {
+    startReanalyzeTransition(async () => {
+      await reanalyzePrompt(prompt.id)
+    })
+  }
 
   function handleDelete() {
     if (!confirm('Delete this prompt?')) return
@@ -197,46 +222,103 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
         }`}
       >
         <div className="flex flex-col gap-2 overflow-hidden">
-          <div className="flex flex-col gap-2 pt-1">
-            {prompt.description && (
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">{prompt.description}</p>
-            )}
-            <p className="whitespace-pre-wrap rounded-lg bg-neutral-100 p-2.5 font-mono text-xs text-neutral-700 dark:bg-neutral-950/60 dark:text-neutral-300">
-              {displayContent}
-            </p>
-            {translateError && (
-              <p className="text-[11px] text-red-600 dark:text-red-400">{translateError}</p>
-            )}
-            {prompt.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {prompt.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
-                  >
-                    {tag}
+          {isEditingBody ? (
+            <PromptBodyEditor prompt={prompt} onClose={() => setIsEditingBody(false)} />
+          ) : (
+            <div className="flex flex-col gap-2 pt-1">
+              {prompt.description && (
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{prompt.description}</p>
+              )}
+              <p className="whitespace-pre-wrap rounded-lg bg-neutral-100 p-2.5 font-mono text-xs text-neutral-700 dark:bg-neutral-950/60 dark:text-neutral-300">
+                {displayContent}
+              </p>
+              {translateError && (
+                <p className="text-[11px] text-red-600 dark:text-red-400">{translateError}</p>
+              )}
+
+              {placeholders.length > 0 && (
+                <div className="flex flex-col gap-1.5 rounded-lg border border-dashed border-neutral-300 p-2 dark:border-neutral-700">
+                  <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+                    Fill in variables
                   </span>
-                ))}
+                  {placeholders.map((name) => (
+                    <input
+                      key={name}
+                      value={placeholderValues[name] ?? ''}
+                      onChange={(e) =>
+                        setPlaceholderValues((v) => ({ ...v, [name]: e.target.value }))
+                      }
+                      placeholder={name}
+                      className="w-full rounded-md border border-neutral-300 bg-white px-2 py-1 text-base text-neutral-900 focus:border-emerald-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 sm:text-sm"
+                    />
+                  ))}
+                </div>
+              )}
+
+              {prompt.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {prompt.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full bg-neutral-200 px-2 py-0.5 text-[11px] text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="flex items-center gap-2 text-[11px] text-neutral-400 dark:text-neutral-600">
+                  <span>
+                    ~{tokenEstimate} tokens · {charCount} chars
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingBody(true)}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                  >
+                    <Pencil className="size-3.5" />
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReanalyze}
+                    disabled={isReanalyzing}
+                    title="Re-run AI tagging on this prompt"
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-200 hover:text-neutral-700 disabled:opacity-60 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                  >
+                    {isReanalyzing ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-3.5" />
+                    )}
+                    Re-analyze
+                  </button>
+                </div>
               </div>
-            )}
-            <div className="flex flex-wrap items-center justify-end gap-1.5 pt-1">
-              <button
-                type="button"
-                onClick={handleToggleTranslation}
-                disabled={isTranslating}
-                className="inline-flex items-center gap-1.5 rounded-md bg-neutral-200/70 px-3 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-300 active:bg-neutral-300 disabled:opacity-60 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:active:bg-neutral-700"
-              >
-                {isTranslating ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Languages className="size-3.5" />
-                )}
-                {showTranslation ? 'Original' : 'English'}
-              </button>
-              <ShareButton title={optimisticTitle} content={displayContent} />
-              <CopyButton content={displayContent} />
+
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleToggleTranslation}
+                  disabled={isTranslating}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-neutral-200/70 px-3 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-300 active:bg-neutral-300 disabled:opacity-60 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:active:bg-neutral-700"
+                >
+                  {isTranslating ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Languages className="size-3.5" />
+                  )}
+                  {showTranslation ? 'Original' : 'English'}
+                </button>
+                <ShareButton title={optimisticTitle} content={displayContent} />
+                <CopyButton content={displayContent} />
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

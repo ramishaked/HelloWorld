@@ -1,12 +1,43 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { analyzePrompt, translateText } from '@/lib/gemini'
+import { analyzePrompt, translateText, type PromptAnalysis } from '@/lib/gemini'
 import { createAdminClient } from '@/lib/supabase-admin'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 type ActionResult = { success: true } | { error: string }
+type SaveResult = { success: true } | { duplicate: true } | { error: string }
 
-export async function createPromptFromText(text: string): Promise<ActionResult> {
+// Returns true if a prompt with identical content already exists, so we don't
+// save the same thing twice.
+async function contentExists(admin: SupabaseClient, content: string): Promise<boolean> {
+  const { data } = await admin.from('prompts').select('id').eq('content', content).limit(1)
+  return (data?.length ?? 0) > 0
+}
+
+async function insertAnalyzedPrompt(
+  admin: SupabaseClient,
+  analysis: PromptAnalysis
+): Promise<SaveResult> {
+  if (await contentExists(admin, analysis.clean_content)) {
+    return { duplicate: true }
+  }
+
+  const { error } = await admin.from('prompts').insert({
+    title: analysis.title,
+    description: analysis.description,
+    content: analysis.clean_content,
+    tags: analysis.tags,
+    raw_analysis: analysis,
+    media_type: analysis.media_type,
+  })
+  if (error) return { error: error.message }
+
+  revalidatePath('/')
+  return { success: true }
+}
+
+export async function createPromptFromText(text: string): Promise<SaveResult> {
   const trimmed = text.trim()
   if (!trimmed) {
     return { error: 'Nothing to save.' }
@@ -14,26 +45,13 @@ export async function createPromptFromText(text: string): Promise<ActionResult> 
 
   try {
     const analysis = await analyzePrompt({ text: trimmed })
-    const admin = createAdminClient()
-    const { error } = await admin.from('prompts').insert({
-      title: analysis.title,
-      description: analysis.description,
-      content: analysis.clean_content,
-      tags: analysis.tags,
-      raw_analysis: analysis,
-      media_type: analysis.media_type,
-    })
-
-    if (error) return { error: error.message }
-
-    revalidatePath('/')
-    return { success: true }
+    return await insertAnalyzedPrompt(createAdminClient(), analysis)
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to save prompt.' }
   }
 }
 
-export async function createPromptFromImage(formData: FormData): Promise<ActionResult> {
+export async function createPromptFromImage(formData: FormData): Promise<SaveResult> {
   const file = formData.get('image')
   if (!(file instanceof File)) {
     return { error: 'No image provided.' }
@@ -47,21 +65,7 @@ export async function createPromptFromImage(formData: FormData): Promise<ActionR
     // OCR happens here; only the extracted text is persisted — the image
     // itself is never uploaded or stored.
     const analysis = await analyzePrompt({ imageBase64: base64, imageMimeType: mimeType })
-
-    const admin = createAdminClient()
-    const { error } = await admin.from('prompts').insert({
-      title: analysis.title,
-      description: analysis.description,
-      content: analysis.clean_content,
-      tags: analysis.tags,
-      raw_analysis: analysis,
-      media_type: analysis.media_type,
-    })
-
-    if (error) return { error: error.message }
-
-    revalidatePath('/')
-    return { success: true }
+    return await insertAnalyzedPrompt(createAdminClient(), analysis)
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to save prompt.' }
   }
@@ -126,5 +130,128 @@ export async function translatePrompt(
     return { text: translated }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to translate.' }
+  }
+}
+
+export type PromptPatch = {
+  content?: string
+  description?: string
+  tags?: string[]
+}
+
+export async function updatePrompt(id: string, patch: PromptPatch): Promise<ActionResult> {
+  const update: Record<string, unknown> = {}
+
+  if (patch.content !== undefined) {
+    const content = patch.content.trim()
+    if (!content) return { error: 'Content cannot be empty.' }
+    update.content = content
+  }
+  if (patch.description !== undefined) {
+    update.description = patch.description.trim()
+  }
+  if (patch.tags !== undefined) {
+    update.tags = patch.tags.map((t) => t.trim()).filter(Boolean).slice(0, 12)
+  }
+
+  if (Object.keys(update).length === 0) return { success: true }
+
+  try {
+    const admin = createAdminClient()
+    const { error } = await admin.from('prompts').update(update).eq('id', id)
+    if (error) return { error: error.message }
+
+    revalidatePath('/')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to update prompt.' }
+  }
+}
+
+// Re-runs Gemini enrichment on an existing prompt's content and refreshes its
+// classification/metadata. The (possibly hand-edited) title and content are
+// preserved on purpose — only description, tags, media_type, raw_analysis change.
+export async function reanalyzePrompt(id: string): Promise<ActionResult> {
+  try {
+    const admin = createAdminClient()
+    const { data, error: fetchError } = await admin
+      .from('prompts')
+      .select('content')
+      .eq('id', id)
+      .single()
+    if (fetchError) return { error: fetchError.message }
+    if (!data?.content) return { error: 'Prompt has no content to analyze.' }
+
+    const analysis = await analyzePrompt({ text: data.content })
+    const { error } = await admin
+      .from('prompts')
+      .update({
+        description: analysis.description,
+        tags: analysis.tags,
+        media_type: analysis.media_type,
+        raw_analysis: analysis,
+      })
+      .eq('id', id)
+    if (error) return { error: error.message }
+
+    revalidatePath('/')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to re-analyze prompt.' }
+  }
+}
+
+export type ImportRow = {
+  title?: unknown
+  content?: unknown
+  description?: unknown
+  tags?: unknown
+  media_type?: unknown
+  is_favorite?: unknown
+}
+
+// Inserts prompts from a backup file. Rows whose content already exists are
+// skipped, so re-importing a backup won't create duplicates.
+export async function importPrompts(
+  rows: ImportRow[]
+): Promise<{ imported: number; skipped: number } | { error: string }> {
+  if (!Array.isArray(rows)) return { error: 'Invalid import file.' }
+
+  const validMedia = new Set(['image', 'video', 'text'])
+  try {
+    const admin = createAdminClient()
+    let imported = 0
+    let skipped = 0
+
+    for (const row of rows) {
+      const content = typeof row.content === 'string' ? row.content.trim() : ''
+      if (!content) {
+        skipped++
+        continue
+      }
+      if (await contentExists(admin, content)) {
+        skipped++
+        continue
+      }
+
+      const media = typeof row.media_type === 'string' && validMedia.has(row.media_type)
+        ? row.media_type
+        : 'text'
+      const { error } = await admin.from('prompts').insert({
+        title: typeof row.title === 'string' && row.title.trim() ? row.title.trim().slice(0, 120) : 'Untitled prompt',
+        description: typeof row.description === 'string' ? row.description : null,
+        content,
+        tags: Array.isArray(row.tags) ? row.tags.map(String).slice(0, 12) : [],
+        media_type: media,
+        is_favorite: row.is_favorite === true,
+      })
+      if (error) return { error: error.message }
+      imported++
+    }
+
+    revalidatePath('/')
+    return { imported, skipped }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to import prompts.' }
   }
 }
