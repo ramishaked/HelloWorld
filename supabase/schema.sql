@@ -10,11 +10,16 @@ create table if not exists public.prompts (
   description text,
   content text not null,
   tags text[] not null default '{}',
-  raw_analysis jsonb
+  raw_analysis jsonb,
+  is_favorite boolean not null default false
 );
+
+-- Idempotent for databases created before is_favorite existed.
+alter table public.prompts add column if not exists is_favorite boolean not null default false;
 
 create index if not exists prompts_created_at_idx on public.prompts (created_at desc);
 create index if not exists prompts_tags_idx on public.prompts using gin (tags);
+create index if not exists prompts_favorite_idx on public.prompts (is_favorite);
 create index if not exists prompts_search_idx on public.prompts
   using gin (to_tsvector('english', title || ' ' || coalesce(description, '') || ' ' || content));
 

@@ -77,3 +77,16 @@ export async function deletePrompt(id: string): Promise<ActionResult> {
     return { error: err instanceof Error ? err.message : 'Failed to delete prompt.' }
   }
 }
+
+export async function toggleFavorite(id: string, isFavorite: boolean): Promise<ActionResult> {
+  try {
+    const admin = createAdminClient()
+    const { error } = await admin.from('prompts').update({ is_favorite: isFavorite }).eq('id', id)
+    if (error) return { error: error.message }
+
+    revalidatePath('/')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to update favorite.' }
+  }
+}

@@ -6,4 +6,5 @@ export type Prompt = {
   content: string
   tags: string[]
   raw_analysis: unknown
+  is_favorite: boolean
 }

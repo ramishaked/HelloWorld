@@ -1,19 +1,29 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { ChevronDown, Trash2 } from 'lucide-react'
+import { useOptimistic, useState, useTransition } from 'react'
+import { ChevronDown, Star, Trash2 } from 'lucide-react'
 import { CopyButton } from '@/components/copy-button'
-import { deletePrompt } from '@/app/actions'
+import { deletePrompt, toggleFavorite } from '@/app/actions'
 import type { Prompt } from '@/lib/types'
 
 export function PromptCard({ prompt }: { prompt: Prompt }) {
   const [isDeleting, startDeleteTransition] = useTransition()
+  const [, startFavoriteTransition] = useTransition()
   const [isOpen, setIsOpen] = useState(false)
+  const [optimisticFavorite, setOptimisticFavorite] = useOptimistic(prompt.is_favorite)
 
   function handleDelete() {
     if (!confirm('Delete this prompt?')) return
     startDeleteTransition(async () => {
       await deletePrompt(prompt.id)
+    })
+  }
+
+  function handleToggleFavorite() {
+    const next = !prompt.is_favorite
+    startFavoriteTransition(async () => {
+      setOptimisticFavorite(next)
+      await toggleFavorite(prompt.id, next)
     })
   }
 
@@ -36,6 +46,15 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
             }`}
           />
           <h3 className="text-sm font-semibold text-neutral-100">{prompt.title}</h3>
+        </button>
+        <button
+          type="button"
+          onClick={handleToggleFavorite}
+          aria-label={optimisticFavorite ? 'Remove from favorites' : 'Add to favorites'}
+          aria-pressed={optimisticFavorite}
+          className="-m-1.5 shrink-0 rounded-md p-1.5 text-neutral-600 transition-colors hover:bg-amber-500/10 hover:text-amber-400 active:bg-amber-500/10 active:text-amber-400"
+        >
+          <Star className={`size-4 ${optimisticFavorite ? 'fill-amber-400 text-amber-400' : ''}`} />
         </button>
         <button
           type="button"

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ClipboardPaste, Loader2, Search } from 'lucide-react'
+import { ClipboardPaste, Filter, Loader2, Search, Star, X } from 'lucide-react'
 import { createPromptFromImage, createPromptFromText } from '@/app/actions'
 import { PromptCard } from '@/components/prompt-card'
 import type { Prompt } from '@/lib/types'
@@ -50,6 +50,9 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [isPending, startTransition] = useTransition()
+  const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([])
+  const [favoritesOnly, setFavoritesOnly] = useState(false)
 
   const saveImage = useCallback(
     (file: File) => {
@@ -166,28 +169,44 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
     }
   }
 
+  const allTopics = useMemo(() => {
+    const tags = new Set<string>()
+    for (const prompt of initialPrompts) {
+      for (const tag of prompt.tags) tags.add(tag)
+    }
+    return Array.from(tags).sort()
+  }, [initialPrompts])
+
+  function toggleTopic(tag: string) {
+    setSelectedTopics((current) =>
+      current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag]
+    )
+  }
+
+  function clearFilters() {
+    setSelectedTopics([])
+    setFavoritesOnly(false)
+  }
+
+  const activeFilterCount = selectedTopics.length + (favoritesOnly ? 1 : 0)
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return initialPrompts
     return initialPrompts.filter((prompt) => {
+      if (favoritesOnly && !prompt.is_favorite) return false
+      if (selectedTopics.length > 0 && !selectedTopics.some((tag) => prompt.tags.includes(tag))) {
+        return false
+      }
+      if (!q) return true
       const haystack = [prompt.title, prompt.description ?? '', prompt.content, ...prompt.tags]
         .join(' ')
         .toLowerCase()
       return haystack.includes(q)
     })
-  }, [initialPrompts, query])
+  }, [initialPrompts, query, selectedTopics, favoritesOnly])
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-10">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-100">PromptVault</h1>
-        <p className="text-sm text-neutral-500">
-          Tap Paste below, or press{' '}
-          <kbd className="rounded bg-neutral-800 px-1.5 py-0.5 text-neutral-300">Cmd/Ctrl+V</kbd>{' '}
-          on desktop, to save whatever&rsquo;s on your clipboard.
-        </p>
-      </header>
-
+    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-6 py-6">
       <div
         className={`flex flex-wrap items-center gap-3 rounded-xl border border-dashed px-4 py-3 text-sm transition-colors ${
           isPending
@@ -215,21 +234,89 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
         </span>
       </div>
 
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-neutral-500" />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search prompts by title, tag, or content..."
-          className="w-full rounded-lg border border-neutral-800 bg-neutral-900/60 py-2.5 pl-10 pr-3 text-base text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-600 focus:outline-none sm:text-sm"
-        />
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-neutral-500" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by keyword..."
+            className="w-full rounded-lg border border-neutral-800 bg-neutral-900/60 py-2.5 pl-10 pr-3 text-base text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-600 focus:outline-none sm:text-sm"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsFilterOpen((open) => !open)}
+          aria-expanded={isFilterOpen}
+          className={`relative inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors sm:py-2 ${
+            isFilterOpen || activeFilterCount > 0
+              ? 'border-emerald-600/60 bg-emerald-500/10 text-emerald-300'
+              : 'border-neutral-800 bg-neutral-900/60 text-neutral-400'
+          }`}
+        >
+          <Filter className="size-4" />
+          <span className="hidden sm:inline">Filter</span>
+          {activeFilterCount > 0 && (
+            <span className="flex size-4 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-semibold text-neutral-950">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
       </div>
+
+      {isFilterOpen && (
+        <div className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setFavoritesOnly((v) => !v)}
+              aria-pressed={favoritesOnly}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
+                favoritesOnly ? 'bg-amber-500/10 text-amber-400' : 'text-neutral-400 hover:bg-neutral-800'
+              }`}
+            >
+              <Star className={`size-3.5 ${favoritesOnly ? 'fill-amber-400' : ''}`} />
+              Favorites only
+            </button>
+            {activeFilterCount > 0 && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300"
+              >
+                <X className="size-3.5" />
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {allTopics.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {allTopics.map((topic) => (
+                <button
+                  key={topic}
+                  type="button"
+                  onClick={() => toggleTopic(topic)}
+                  aria-pressed={selectedTopics.includes(topic)}
+                  className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
+                    selectedTopics.includes(topic)
+                      ? 'bg-emerald-500 text-neutral-950'
+                      : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
+                  }`}
+                >
+                  {topic}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div className="flex flex-1 items-center justify-center rounded-xl border border-neutral-800 py-24 text-sm text-neutral-600">
           {initialPrompts.length === 0
             ? 'No prompts yet. Copy some text or a screenshot, then paste it here.'
-            : 'No prompts match your search.'}
+            : 'No prompts match your search or filters.'}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
