@@ -99,25 +99,30 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
     setBulk({ done, total: targets.length, errors, running: true })
 
     try {
-      for (const prompt of targets) {
+      for (let i = 0; i < targets.length; i++) {
         if (cancelBulkRef.current) break
         try {
           // Race each call against a timeout so one hung/slow request can't
           // wedge the whole run — count it as a failure and move on.
           const result = await Promise.race([
-            reanalyzePrompt(prompt.id, false),
+            reanalyzePrompt(targets[i].id, false),
             new Promise<{ error: string }>((_, reject) =>
-              setTimeout(() => reject(new Error('timeout')), 45000)
+              setTimeout(() => reject(new Error('timeout')), 60000)
             ),
           ])
           if ('error' in result) errors++
         } catch {
-          // Rejected (network error, function timeout, or our 45s cap): count
-          // and keep going rather than freezing the progress bar.
+          // Rejected (network error, function timeout, or our cap): count and
+          // keep going rather than freezing the progress bar.
           errors++
         }
         done++
         setBulk({ done, total: targets.length, errors, running: true })
+
+        // Small gap between calls to stay under the (low) free-tier rate limit.
+        if (i < targets.length - 1 && !cancelBulkRef.current) {
+          await new Promise((resolve) => setTimeout(resolve, 1200))
+        }
       }
     } finally {
       // Always leave the bar in a finished state, even if something unexpected

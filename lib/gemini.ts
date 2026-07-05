@@ -68,8 +68,44 @@ function getClient() {
   return client
 }
 
+function parseRetryDelayMs(err: unknown): number | null {
+  const msg = (err as { message?: string })?.message
+  if (typeof msg !== 'string') return null
+  const m = msg.match(/"retryDelay":"(\d+(?:\.\d+)?)s"/)
+  return m ? Math.ceil(parseFloat(m[1]) * 1000) : null
+}
+
+// The Gemini free tier has low request limits, so a burst (e.g. a bulk
+// re-analyze) intermittently gets 429s. Retry those a couple of times,
+// honoring the API's suggested delay, so a transient limit doesn't surface as
+// a failure. On a persistent limit, throw a clean, human-readable message
+// instead of the raw error JSON.
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  const maxRetries = 2
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      const status = (err as { status?: number })?.status
+      const retriable = status === 429 || status === 503 || status === 500
+      if (retriable && attempt < maxRetries) {
+        const waitMs = Math.min(20000, (parseRetryDelayMs(err) ?? 2500 * 2 ** attempt) + 500)
+        await new Promise((resolve) => setTimeout(resolve, waitMs))
+        continue
+      }
+      if (status === 429) {
+        throw new Error(
+          'Gemini rate limit reached — the free tier has low limits. Wait a minute and try again.'
+        )
+      }
+      throw err
+    }
+  }
+}
+
 export async function translateText(text: string, targetLanguage: string): Promise<string> {
-  const response = await getClient().models.generateContent({
+  const response = await withRetry(() =>
+    getClient().models.generateContent({
     model: MODEL,
     contents: [{ role: 'user', parts: [{ text }] }],
     config: {
@@ -78,7 +114,8 @@ Preserve the meaning, tone, line breaks, and any placeholders, variables, or cod
 Output ONLY the translated text — no preamble, quotes, or explanation.`,
       thinkingConfig: { thinkingBudget: 0 },
     },
-  })
+    })
+  )
 
   const raw = response.text
   if (!raw) {
@@ -117,19 +154,21 @@ export async function analyzePrompt(input: {
     throw new Error('analyzePrompt requires text and/or an image.')
   }
 
-  const response = await getClient().models.generateContent({
-    model: MODEL,
-    contents: [{ role: 'user', parts }],
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      responseMimeType: 'application/json',
-      responseSchema,
-      // Disable "thinking" — this is structured extraction/classification, not
-      // reasoning, so thinking only adds latency and cost (and can push a call
-      // past the serverless timeout). Big speedup for enrichment & re-analyze.
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  })
+  const response = await withRetry(() =>
+    getClient().models.generateContent({
+      model: MODEL,
+      contents: [{ role: 'user', parts }],
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        responseMimeType: 'application/json',
+        responseSchema,
+        // Disable "thinking" — this is structured extraction/classification,
+        // not reasoning, so thinking only adds latency and cost (and can push a
+        // call past the serverless timeout). Big speedup for enrichment.
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    })
+  )
 
   const raw = response.text
   if (!raw) {
