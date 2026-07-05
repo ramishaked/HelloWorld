@@ -9,6 +9,42 @@ import type { Prompt } from '@/lib/types'
 
 type Status = { kind: 'idle' } | { kind: 'saving' } | { kind: 'error'; message: string }
 
+// We only need enough resolution for Gemini to OCR text out of the image, not
+// the original photo quality, so downscale before upload. This keeps every
+// paste well under any request-size limit (Next.js's Server Action limit,
+// and Vercel's own platform ceiling for function payloads) regardless of how
+// large the source photo/screenshot was.
+const MAX_IMAGE_DIMENSION = 2000
+const IMAGE_QUALITY = 0.9
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+
+async function downscaleImage(file: File): Promise<File> {
+  if (typeof createImageBitmap === 'undefined') return file
+
+  const bitmap = await createImageBitmap(file)
+  const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height))
+  const width = Math.round(bitmap.width * scale)
+  const height = Math.round(bitmap.height * scale)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    bitmap.close()
+    return file
+  }
+  ctx.drawImage(bitmap, 0, 0, width, height)
+  bitmap.close()
+
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, 'image/jpeg', IMAGE_QUALITY)
+  )
+  if (!blob) return file
+
+  return new File([blob], 'pasted.jpg', { type: 'image/jpeg' })
+}
+
 export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
   const router = useRouter()
   const [query, setQuery] = useState('')
@@ -18,15 +54,25 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
   const saveImage = useCallback(
     (file: File) => {
       setStatus({ kind: 'saving' })
-      const formData = new FormData()
-      formData.set('image', file)
       startTransition(async () => {
-        const result = await createPromptFromImage(formData)
-        if ('error' in result) {
-          setStatus({ kind: 'error', message: result.error })
-        } else {
-          setStatus({ kind: 'idle' })
-          router.refresh()
+        try {
+          const optimized = await downscaleImage(file)
+          if (optimized.size > MAX_UPLOAD_BYTES) {
+            setStatus({ kind: 'error', message: 'That image is too large even after compression.' })
+            return
+          }
+
+          const formData = new FormData()
+          formData.set('image', optimized)
+          const result = await createPromptFromImage(formData)
+          if ('error' in result) {
+            setStatus({ kind: 'error', message: result.error })
+          } else {
+            setStatus({ kind: 'idle' })
+            router.refresh()
+          }
+        } catch {
+          setStatus({ kind: 'error', message: 'Failed to save the image. Please try again.' })
         }
       })
     },
@@ -37,12 +83,16 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
     (text: string) => {
       setStatus({ kind: 'saving' })
       startTransition(async () => {
-        const result = await createPromptFromText(text)
-        if ('error' in result) {
-          setStatus({ kind: 'error', message: result.error })
-        } else {
-          setStatus({ kind: 'idle' })
-          router.refresh()
+        try {
+          const result = await createPromptFromText(text)
+          if ('error' in result) {
+            setStatus({ kind: 'error', message: result.error })
+          } else {
+            setStatus({ kind: 'idle' })
+            router.refresh()
+          }
+        } catch {
+          setStatus({ kind: 'error', message: 'Failed to save the prompt. Please try again.' })
         }
       })
     },
