@@ -66,6 +66,11 @@ Open [http://localhost:3000](http://localhost:3000). Tap the **Paste** button (o
   policies, so the table can't be read or written directly from the browser.
 - The dashboard (`components/dashboard.tsx`) does client-side search across title,
   description, tags, and content.
+- **Prompt variables:** write fill-in slots as `{{name}}` (recommended) — `[name]` and
+  `${name}` are also detected. Expanding a prompt that has variables shows a "Fill in
+  variables" box, and Copy/Share use the filled text. Other styles (`<name>`, `{name}`,
+  `TOPIC`, blanks) are normalized to `{{name}}` when a prompt is analyzed; if a variable
+  isn't detected, Edit the prompt to wrap it in `{{ }}` (`lib/placeholders.ts`).
 
 ## Deploy
 

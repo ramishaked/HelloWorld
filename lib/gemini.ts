@@ -14,7 +14,12 @@ Your job:
 3. Write a one-sentence description of the prompt's purpose.
 4. Produce 3-5 short lowercase keyword tags for filtering (single words or short phrases, no hashtags).
 5. Produce "clean_content": the prompt text itself, cleaned up (fix obvious OCR artifacts, trim boilerplate \
-chat UI chrome like timestamps or button labels) but preserving the actual prompt wording and intent.
+chat UI chrome like timestamps or button labels) but preserving the actual prompt wording and intent. \
+Normalize fill-in placeholders: if the prompt is a reusable template with slots the user is meant to \
+replace — written in ANY style such as [topic], <topic>, {topic}, \${topic}, {{topic}}, an ALL-CAPS token \
+like TOPIC, or a blank like ____ — rewrite each such slot as {{snake_case_name}} (a short lowercase name). \
+Do NOT convert code, JSON keys/values, HTML/XML tags, markdown links, citations like [1], or ordinary \
+literal words into placeholders — only genuine user-fill slots.
 6. Classify "media_type": is this prompt written to make a generative model produce an IMAGE (e.g. a \
 Midjourney/DALL-E/Stable Diffusion/Imagen-style visual description), a VIDEO (e.g. a Sora/Veo/Runway-style \
 shot description), or is it a regular text/chat prompt with no media-generation intent? Respond with \
