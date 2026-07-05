@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ClipboardPaste, Filter, Image as ImageIcon, Loader2, Search, Star, Video, X } from 'lucide-react'
 import { createPromptFromImage, createPromptFromText } from '@/app/actions'
 import { PromptCard } from '@/components/prompt-card'
+import { ThemeToggle } from '@/components/theme-toggle'
 import type { MediaType } from '@/lib/gemini'
 import type { Prompt } from '@/lib/types'
 
@@ -220,29 +221,32 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-3 px-6 py-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={handlePasteTap}
-          disabled={isPending}
-          className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-neutral-950 transition-colors hover:bg-emerald-400 active:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isPending ? <Loader2 className="size-4 animate-spin" /> : <ClipboardPaste className="size-4" />}
-          {isPending ? 'Saving...' : 'Paste'}
-        </button>
-        {status.kind === 'error' && (
-          <span className="text-sm text-red-400">{status.message}</span>
-        )}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handlePasteTap}
+            disabled={isPending}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-neutral-950 transition-colors hover:bg-emerald-400 active:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isPending ? <Loader2 className="size-4 animate-spin" /> : <ClipboardPaste className="size-4" />}
+            {isPending ? 'Saving...' : 'Paste'}
+          </button>
+          {status.kind === 'error' && (
+            <span className="text-sm text-red-600 dark:text-red-400">{status.message}</span>
+          )}
+        </div>
+        <ThemeToggle />
       </div>
 
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-neutral-500" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-neutral-400 dark:text-neutral-500" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search by keyword..."
-            className="w-full rounded-lg border border-neutral-800 bg-neutral-900/60 py-2.5 pl-10 pr-3 text-base text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-600 focus:outline-none sm:text-sm"
+            className="w-full rounded-lg border border-neutral-200 bg-neutral-50 py-2.5 pl-10 pr-3 text-base text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400 focus:outline-none dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-100 dark:placeholder:text-neutral-600 dark:focus:border-neutral-600 sm:text-sm"
           />
         </div>
         <button
@@ -251,8 +255,8 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
           aria-expanded={isFilterOpen}
           className={`relative inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors sm:py-2 ${
             isFilterOpen || activeFilterCount > 0
-              ? 'border-emerald-600/60 bg-emerald-500/10 text-emerald-300'
-              : 'border-neutral-800 bg-neutral-900/60 text-neutral-400'
+              ? 'border-emerald-600/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+              : 'border-neutral-200 bg-neutral-50 text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900/60 dark:text-neutral-400'
           }`}
         >
           <Filter className="size-4" />
@@ -266,7 +270,7 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
       </div>
 
       {isFilterOpen && (
-        <div className="flex flex-col gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 p-3">
+        <div className="flex flex-col gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/60">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
               <button
@@ -274,10 +278,12 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
                 onClick={() => setFavoritesOnly((v) => !v)}
                 aria-pressed={favoritesOnly}
                 className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
-                  favoritesOnly ? 'bg-amber-500/10 text-amber-400' : 'text-neutral-400 hover:bg-neutral-800'
+                  favoritesOnly
+                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                    : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800'
                 }`}
               >
-                <Star className={`size-3.5 ${favoritesOnly ? 'fill-amber-400' : ''}`} />
+                <Star className={`size-3.5 ${favoritesOnly ? 'fill-amber-500 dark:fill-amber-400' : ''}`} />
                 Favorites
               </button>
               <button
@@ -286,8 +292,8 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
                 aria-pressed={selectedMediaTypes.includes('image')}
                 className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
                   selectedMediaTypes.includes('image')
-                    ? 'bg-sky-500/10 text-sky-400'
-                    : 'text-neutral-400 hover:bg-neutral-800'
+                    ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400'
+                    : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800'
                 }`}
               >
                 <ImageIcon className="size-3.5" />
@@ -299,8 +305,8 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
                 aria-pressed={selectedMediaTypes.includes('video')}
                 className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
                   selectedMediaTypes.includes('video')
-                    ? 'bg-fuchsia-500/10 text-fuchsia-400'
-                    : 'text-neutral-400 hover:bg-neutral-800'
+                    ? 'bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400'
+                    : 'text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800'
                 }`}
               >
                 <Video className="size-3.5" />
@@ -311,7 +317,7 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
               <button
                 type="button"
                 onClick={clearFilters}
-                className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-300"
+                className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
               >
                 <X className="size-3.5" />
                 Clear filters
@@ -330,7 +336,7 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
                   className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
                     selectedTopics.includes(topic)
                       ? 'bg-emerald-500 text-neutral-950'
-                      : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
+                      : 'bg-neutral-200 text-neutral-600 hover:bg-neutral-300 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700'
                   }`}
                 >
                   {topic}
@@ -342,7 +348,7 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
       )}
 
       {filtered.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center rounded-xl border border-neutral-800 py-24 text-sm text-neutral-600">
+        <div className="flex flex-1 items-center justify-center rounded-xl border border-neutral-200 py-24 text-sm text-neutral-400 dark:border-neutral-800 dark:text-neutral-600">
           {initialPrompts.length === 0
             ? 'No prompts yet. Copy some text or a screenshot, then paste it here.'
             : 'No prompts match your search or filters.'}
