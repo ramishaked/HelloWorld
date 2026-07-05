@@ -22,11 +22,20 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html {
+  /* Never let content trigger sideways scrolling — keeps the native-app feel
+     rather than a zoomable/pannable web page. */
+  overflow-x: hidden;
+  /* Stop iOS from auto-enlarging text (and the layout) on orientation/focus. */
+  -webkit-text-size-adjust: 100%;
+}
+
 /* Keep content clear of the iPhone notch/home indicator when installed as a
    standalone PWA (viewport-fit=cover lets the page draw under them). */
 body {
   background: var(--background);
   color: var(--foreground);
+  overflow-x: hidden;
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
