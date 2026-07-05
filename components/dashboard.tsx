@@ -98,17 +98,34 @@ export function Dashboard({ initialPrompts }: { initialPrompts: Prompt[] }) {
     let errors = 0
     setBulk({ done, total: targets.length, errors, running: true })
 
-    for (const prompt of targets) {
-      if (cancelBulkRef.current) break
-      const result = await reanalyzePrompt(prompt.id, false)
-      done++
-      if ('error' in result) errors++
-      setBulk({ done, total: targets.length, errors, running: true })
+    try {
+      for (const prompt of targets) {
+        if (cancelBulkRef.current) break
+        try {
+          // Race each call against a timeout so one hung/slow request can't
+          // wedge the whole run — count it as a failure and move on.
+          const result = await Promise.race([
+            reanalyzePrompt(prompt.id, false),
+            new Promise<{ error: string }>((_, reject) =>
+              setTimeout(() => reject(new Error('timeout')), 45000)
+            ),
+          ])
+          if ('error' in result) errors++
+        } catch {
+          // Rejected (network error, function timeout, or our 45s cap): count
+          // and keep going rather than freezing the progress bar.
+          errors++
+        }
+        done++
+        setBulk({ done, total: targets.length, errors, running: true })
+      }
+    } finally {
+      // Always leave the bar in a finished state, even if something unexpected
+      // throws — the spinner can never stick.
+      router.refresh()
+      setBulk({ done, total: targets.length, errors, running: false })
+      setTimeout(() => setBulk(null), 5000)
     }
-
-    router.refresh()
-    setBulk({ done, total: targets.length, errors, running: false })
-    setTimeout(() => setBulk(null), 5000)
   }
 
   const saveImage = useCallback(

@@ -72,6 +72,7 @@ export async function translateText(text: string, targetLanguage: string): Promi
       systemInstruction: `You are a translation engine. Translate the user's text into ${targetLanguage}. \
 Preserve the meaning, tone, line breaks, and any placeholders, variables, or code. \
 Output ONLY the translated text — no preamble, quotes, or explanation.`,
+      thinkingConfig: { thinkingBudget: 0 },
     },
   })
 
@@ -118,6 +119,10 @@ export async function analyzePrompt(input: {
       systemInstruction: SYSTEM_INSTRUCTION,
       responseMimeType: 'application/json',
       responseSchema,
+      // Disable "thinking" — this is structured extraction/classification, not
+      // reasoning, so thinking only adds latency and cost (and can push a call
+      // past the serverless timeout). Big speedup for enrichment & re-analyze.
+      thinkingConfig: { thinkingBudget: 0 },
     },
   })
 
