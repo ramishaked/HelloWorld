@@ -1,10 +1,11 @@
 'use client'
 
-import { useOptimistic, useState, useTransition } from 'react'
+import { useOptimistic, useRef, useState, useTransition } from 'react'
 import {
   Check,
   ChevronDown,
   Image as ImageIcon,
+  ImagePlus,
   Languages,
   Loader2,
   Pencil,
@@ -20,10 +21,13 @@ import { PromptBodyEditor } from '@/components/prompt-body-editor'
 import {
   deletePrompt,
   reanalyzePrompt,
+  removeExampleImage,
+  setExampleImage,
   toggleFavorite,
   translatePrompt,
   updatePromptTitle,
 } from '@/app/actions'
+import { downscaleImage, MAX_UPLOAD_BYTES } from '@/lib/image-client'
 import { applyPlaceholders, extractPlaceholders } from '@/lib/placeholders'
 import type { Prompt } from '@/lib/types'
 
@@ -46,6 +50,38 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
   const [isEditingBody, setIsEditingBody] = useState(false)
   const [isReanalyzing, startReanalyzeTransition] = useTransition()
   const [placeholderValues, setPlaceholderValues] = useState<Record<string, string>>({})
+
+  const [isUploadingExample, startExampleTransition] = useTransition()
+  const [exampleError, setExampleError] = useState<string | null>(null)
+  const exampleInputRef = useRef<HTMLInputElement>(null)
+
+  function handleExampleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setExampleError(null)
+    startExampleTransition(async () => {
+      try {
+        const optimized = await downscaleImage(file)
+        if (optimized.size > MAX_UPLOAD_BYTES) {
+          setExampleError('That image is too large even after compression.')
+          return
+        }
+        const formData = new FormData()
+        formData.set('image', optimized)
+        const result = await setExampleImage(prompt.id, formData)
+        if ('error' in result) setExampleError(result.error)
+      } catch {
+        setExampleError('Failed to upload the image. Please try again.')
+      }
+    })
+  }
+
+  function handleRemoveExample() {
+    startExampleTransition(async () => {
+      await removeExampleImage(prompt.id)
+    })
+  }
 
   const placeholders = extractPlaceholders(prompt.content)
   const baseContent = showTranslation && translatedText ? translatedText : prompt.content
@@ -235,6 +271,58 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
               {translateError && (
                 <p className="text-[11px] text-red-600 dark:text-red-400">{translateError}</p>
               )}
+
+              {/* Example output image (image-generation prompts). */}
+              {prompt.example_image_url ? (
+                <div className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={prompt.example_image_url}
+                    alt="Example output for this prompt"
+                    loading="lazy"
+                    className="max-h-56 w-full rounded-lg border border-neutral-200 object-contain dark:border-neutral-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRemoveExample}
+                    disabled={isUploadingExample}
+                    aria-label="Remove example image"
+                    className="absolute right-1.5 top-1.5 inline-flex size-7 items-center justify-center rounded-md bg-neutral-950/60 text-white transition-colors hover:bg-neutral-950/80 disabled:opacity-60"
+                  >
+                    {isUploadingExample ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <X className="size-4" />
+                    )}
+                  </button>
+                </div>
+              ) : (
+                prompt.media_type === 'image' && (
+                  <button
+                    type="button"
+                    onClick={() => exampleInputRef.current?.click()}
+                    disabled={isUploadingExample}
+                    className="inline-flex items-center gap-1.5 self-start rounded-md border border-dashed border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                  >
+                    {isUploadingExample ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <ImagePlus className="size-3.5" />
+                    )}
+                    {isUploadingExample ? 'Uploading…' : 'Add example image'}
+                  </button>
+                )
+              )}
+              {exampleError && (
+                <p className="text-[11px] text-red-600 dark:text-red-400">{exampleError}</p>
+              )}
+              <input
+                ref={exampleInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleExampleFile}
+              />
 
               {placeholders.length > 0 && (
                 <div className="flex flex-col gap-1.5 rounded-lg border border-dashed border-neutral-300 p-2 dark:border-neutral-700">

@@ -11,4 +11,5 @@ export type Prompt = {
   is_favorite: boolean
   media_type: MediaType
   category: string | null
+  example_image_url: string | null
 }

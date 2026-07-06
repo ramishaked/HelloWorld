@@ -1,9 +1,12 @@
 'use server'
 
+import { randomUUID } from 'crypto'
 import { revalidatePath } from 'next/cache'
 import { analyzePrompt, clusterSubjects, translateText, type PromptAnalysis } from '@/lib/gemini'
 import { createAdminClient } from '@/lib/supabase-admin'
 import type { SupabaseClient } from '@supabase/supabase-js'
+
+const EXAMPLE_BUCKET = 'prompt-images'
 
 type ActionResult = { success: true } | { error: string }
 type SaveResult = { success: true } | { duplicate: true } | { error: string }
@@ -110,6 +113,84 @@ export async function toggleFavorite(id: string, isFavorite: boolean): Promise<A
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to update favorite.' }
+  }
+}
+
+// Derive the storage object path from a public URL so we can delete it later.
+function storagePathFromUrl(url: string | null): string | null {
+  if (!url) return null
+  const marker = `/${EXAMPLE_BUCKET}/`
+  const i = url.indexOf(marker)
+  return i === -1 ? null : url.slice(i + marker.length)
+}
+
+// Uploads a user-attached example output image for a prompt and stores its URL.
+export async function setExampleImage(
+  promptId: string,
+  formData: FormData
+): Promise<{ url: string } | { error: string }> {
+  const file = formData.get('image')
+  if (!(file instanceof File)) return { error: 'No image provided.' }
+
+  try {
+    const admin = createAdminClient()
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const path = `examples/${randomUUID()}.jpg`
+
+    const { error: uploadError } = await admin.storage
+      .from(EXAMPLE_BUCKET)
+      .upload(path, buffer, { contentType: file.type || 'image/jpeg', upsert: false })
+    if (uploadError) return { error: uploadError.message }
+
+    const {
+      data: { publicUrl },
+    } = admin.storage.from(EXAMPLE_BUCKET).getPublicUrl(path)
+
+    // Grab the previous image (to clean up) then point the prompt at the new one.
+    const { data: prev } = await admin
+      .from('prompts')
+      .select('example_image_url')
+      .eq('id', promptId)
+      .single()
+
+    const { error } = await admin
+      .from('prompts')
+      .update({ example_image_url: publicUrl })
+      .eq('id', promptId)
+    if (error) return { error: error.message }
+
+    const oldPath = storagePathFromUrl(prev?.example_image_url ?? null)
+    if (oldPath) await admin.storage.from(EXAMPLE_BUCKET).remove([oldPath])
+
+    revalidatePath('/')
+    return { url: publicUrl }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to upload example image.' }
+  }
+}
+
+export async function removeExampleImage(promptId: string): Promise<ActionResult> {
+  try {
+    const admin = createAdminClient()
+    const { data } = await admin
+      .from('prompts')
+      .select('example_image_url')
+      .eq('id', promptId)
+      .single()
+
+    const { error } = await admin
+      .from('prompts')
+      .update({ example_image_url: null })
+      .eq('id', promptId)
+    if (error) return { error: error.message }
+
+    const path = storagePathFromUrl(data?.example_image_url ?? null)
+    if (path) await admin.storage.from(EXAMPLE_BUCKET).remove([path])
+
+    revalidatePath('/')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to remove example image.' }
   }
 }
 
