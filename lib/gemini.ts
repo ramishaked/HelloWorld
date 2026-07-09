@@ -1,8 +1,11 @@
 import { GoogleGenAI, Type, createPartFromBase64, type Part } from '@google/genai'
 
-// flash-lite has a more generous free tier than flash and is multimodal
-// (handles image OCR), which is plenty for enrichment + classification.
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite'
+// gemini-2.5-flash is multimodal (image OCR) and reliable for enrichment +
+// classification. NOTE: Google retired the gemini-2.5-flash-lite alias, and its
+// ListModels entry is misleading (still lists it), so before switching models
+// confirm the id actually responds to generateContent, not just that it's listed.
+// GEMINI_MODEL overrides this at runtime.
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
 
 const SYSTEM_INSTRUCTION = `You are the enrichment engine for PromptVault, a tool developers use to \
 save and reuse AI prompts. You will receive either pasted text or a screenshot/image \
