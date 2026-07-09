@@ -4,6 +4,7 @@ import { useOptimistic, useRef, useState, useTransition } from 'react'
 import {
   Check,
   ChevronDown,
+  ClipboardPaste,
   Image as ImageIcon,
   ImagePlus,
   Languages,
@@ -55,10 +56,7 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
   const [exampleError, setExampleError] = useState<string | null>(null)
   const exampleInputRef = useRef<HTMLInputElement>(null)
 
-  function handleExampleFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
+  function uploadExampleFile(file: File) {
     setExampleError(null)
     startExampleTransition(async () => {
       try {
@@ -75,6 +73,37 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
         setExampleError('Failed to upload the image. Please try again.')
       }
     })
+  }
+
+  function handleExampleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (file) uploadExampleFile(file)
+  }
+
+  // Read an image straight off the clipboard (e.g. a just-generated image) and
+  // attach it as the example, without going through the file picker.
+  async function handlePasteExample() {
+    setExampleError(null)
+    if (!navigator.clipboard?.read) {
+      setExampleError('Pasting images is not supported in this browser.')
+      return
+    }
+    try {
+      const items = await navigator.clipboard.read()
+      for (const item of items) {
+        const imageType = item.types.find((type) => type.startsWith('image/'))
+        if (imageType) {
+          const blob = await item.getType(imageType)
+          const ext = imageType.split('/')[1] || 'png'
+          uploadExampleFile(new File([blob], `pasted.${ext}`, { type: imageType }))
+          return
+        }
+      }
+      setExampleError('No image found on the clipboard.')
+    } catch {
+      setExampleError('Could not read the clipboard. Allow access and try again.')
+    }
   }
 
   function handleRemoveExample() {
@@ -298,19 +327,33 @@ export function PromptCard({ prompt }: { prompt: Prompt }) {
                 </div>
               ) : (
                 prompt.media_type === 'image' && (
-                  <button
-                    type="button"
-                    onClick={() => exampleInputRef.current?.click()}
-                    disabled={isUploadingExample}
-                    className="inline-flex items-center gap-1.5 self-start rounded-md border border-dashed border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-                  >
-                    {isUploadingExample ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <ImagePlus className="size-3.5" />
-                    )}
-                    {isUploadingExample ? 'Uploading…' : 'Add example image'}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                      Example image:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => exampleInputRef.current?.click()}
+                      disabled={isUploadingExample}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    >
+                      {isUploadingExample ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <ImagePlus className="size-3.5" />
+                      )}
+                      {isUploadingExample ? 'Uploading…' : 'Upload'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePasteExample}
+                      disabled={isUploadingExample}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                    >
+                      <ClipboardPaste className="size-3.5" />
+                      Paste
+                    </button>
+                  </div>
                 )
               )}
               {exampleError && (
