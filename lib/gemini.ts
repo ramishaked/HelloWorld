@@ -3,9 +3,11 @@ import { GoogleGenAI, Type, createPartFromBase64, type Part } from '@google/gena
 // Use the "-latest" alias, which always tracks the current flash-lite model, so
 // it won't 404 when Google retires a pinned version (as happened to
 // gemini-2.5-flash-lite AND gemini-2.5-flash). It's multimodal (image OCR) and
-// light on the free tier. Verified live with our exact config (JSON schema +
-// thinkingBudget 0). ListModels is unreliable — confirm generateContent actually
-// responds before switching. GEMINI_MODEL overrides at runtime.
+// light on the free tier. Note: the model behind this alias can change, so avoid
+// model-version-specific request params — e.g. `thinkingConfig.thinkingBudget: 0`
+// is rejected (400 INVALID_ARGUMENT) by the current model, so we don't send it.
+// ListModels is unreliable — confirm generateContent actually responds before
+// switching. GEMINI_MODEL overrides at runtime.
 const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-lite-latest'
 
 const SYSTEM_INSTRUCTION = `You are the enrichment engine for PromptVault, a tool developers use to \
@@ -123,7 +125,6 @@ export async function translateText(text: string, targetLanguage: string): Promi
       systemInstruction: `You are a translation engine. Translate the user's text into ${targetLanguage}. \
 Preserve the meaning, tone, line breaks, and any placeholders, variables, or code. \
 Output ONLY the translated text — no preamble, quotes, or explanation.`,
-      thinkingConfig: { thinkingBudget: 0 },
     },
     })
   )
@@ -173,10 +174,6 @@ export async function analyzePrompt(input: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: 'application/json',
         responseSchema,
-        // Disable "thinking" — this is structured extraction/classification,
-        // not reasoning, so thinking only adds latency and cost (and can push a
-        // call past the serverless timeout). Big speedup for enrichment.
-        thinkingConfig: { thinkingBudget: 0 },
       },
     })
   )
@@ -259,7 +256,6 @@ export async function clusterSubjects(
         systemInstruction: CLUSTER_INSTRUCTION,
         responseMimeType: 'application/json',
         responseSchema: clusterSchema,
-        thinkingConfig: { thinkingBudget: 0 },
       },
     })
   )
